@@ -1,0 +1,14 @@
+{
+  "ComplianceSecurityControlId": [
+    {
+      "Value": "S3.1",
+      "Comparison": "EQUALS"
+    }
+  ],
+  "RecordState": [
+    {
+      "Value": "ACTIVE",
+      "Comparison": "EQUALS"
+    }
+  ]
+}

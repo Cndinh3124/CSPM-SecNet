@@ -1,0 +1,7 @@
+policies:
+  - name: cspm-s3-public-block-detection
+    resource: s3
+    description: Detect S3 buckets without Public Access Block
+    filters:
+      - type: check-public-block
+        BlockPublicAcls: false

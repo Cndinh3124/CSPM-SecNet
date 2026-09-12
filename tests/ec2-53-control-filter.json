@@ -1,0 +1,8 @@
+﻿{
+  "SecurityControlId": [
+    {
+      "Value": "EC2.53",
+      "Comparison": "EQUALS"
+    }
+  ]
+}

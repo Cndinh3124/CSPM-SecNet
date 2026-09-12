@@ -1,0 +1,76 @@
+policies:
+
+  - name: cspm-ec2-2-default-sg-ingress-vpc1
+    resource: security-group
+    description: Remove self-referencing inbound rule from default security group
+    filters:
+      - GroupId: sg-07b0029f127b545ba
+      - type: ingress
+        IpProtocol: "-1"
+        SelfReference: true
+    actions:
+      - type: remove-permissions
+        ingress: matched
+
+  - name: cspm-ec2-2-default-sg-egress-vpc1
+    resource: security-group
+    description: Remove unrestricted outbound rule from default security group
+    filters:
+      - GroupId: sg-07b0029f127b545ba
+      - type: egress
+        IpProtocol: "-1"
+        Cidr: 0.0.0.0/0
+    actions:
+      - type: remove-permissions
+        egress: matched
+
+
+  - name: cspm-ec2-2-default-sg-ingress-vpc2
+    resource: security-group
+    description: Remove self-referencing inbound rule from default security group
+    filters:
+      - GroupId: sg-08df063e8adde3c6c
+      - type: ingress
+        IpProtocol: "-1"
+        SelfReference: true
+    actions:
+      - type: remove-permissions
+        ingress: matched
+
+  - name: cspm-ec2-2-default-sg-egress-vpc2
+    resource: security-group
+    description: Remove unrestricted outbound rule from default security group
+    filters:
+      - GroupId: sg-08df063e8adde3c6c
+      - type: egress
+        IpProtocol: "-1"
+        Cidr: 0.0.0.0/0
+    actions:
+      - type: remove-permissions
+        egress: matched
+
+
+  - name: cspm-ec2-2-default-sg-ingress-vpc3
+    resource: security-group
+    description: Remove inbound TCP 3306 permission from default security group
+    filters:
+      - GroupId: sg-017f2568cff91e150
+      - type: ingress
+        IpProtocol: tcp
+        FromPort: 3306
+        ToPort: 3306
+    actions:
+      - type: remove-permissions
+        ingress: matched
+
+  - name: cspm-ec2-2-default-sg-egress-vpc3
+    resource: security-group
+    description: Remove unrestricted outbound rule from default security group
+    filters:
+      - GroupId: sg-017f2568cff91e150
+      - type: egress
+        IpProtocol: "-1"
+        Cidr: 0.0.0.0/0
+    actions:
+      - type: remove-permissions
+        egress: matched

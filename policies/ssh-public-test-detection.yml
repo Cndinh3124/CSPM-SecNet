@@ -1,0 +1,11 @@
+policies:
+  - name: cspm-ssh-public-test-detection
+    resource: security-group
+    description: Verify public SSH access on CSPM test Security Group
+    filters:
+      - "tag:CSPMTest": "true"
+      - type: ingress
+        IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        Cidr: 0.0.0.0/0

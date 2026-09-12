@@ -1,0 +1,20 @@
+{
+  "ComplianceSecurityControlId": [
+    {
+      "Value": "S3.5",
+      "Comparison": "EQUALS"
+    }
+  ],
+  "ResourceId": [
+    {
+      "Value": "arn:aws:s3:::cspm-test-d500160e2ad0b3e4eb19ab1ad5",
+      "Comparison": "EQUALS"
+    }
+  ],
+  "RecordState": [
+    {
+      "Value": "ACTIVE",
+      "Comparison": "EQUALS"
+    }
+  ]
+}

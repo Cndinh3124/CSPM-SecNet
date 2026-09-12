@@ -1,0 +1,14 @@
+{
+  "ComplianceStatus": [
+    {
+      "Value": "FAILED",
+      "Comparison": "EQUALS"
+    }
+  ],
+  "ComplianceSecurityControlId": [
+    {
+      "Value": "S3.23",
+      "Comparison": "EQUALS"
+    }
+  ]
+}

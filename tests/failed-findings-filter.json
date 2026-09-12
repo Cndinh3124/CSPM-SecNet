@@ -1,0 +1,14 @@
+{
+  "ComplianceStatus": [
+    {
+      "Value": "FAILED",
+      "Comparison": "EQUALS"
+    }
+  ],
+  "RecordState": [
+    {
+      "Value": "ACTIVE",
+      "Comparison": "EQUALS"
+    }
+  ]
+}

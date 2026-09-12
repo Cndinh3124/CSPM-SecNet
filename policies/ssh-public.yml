@@ -1,0 +1,10 @@
+policies:
+  - name: cspm-ssh-public-detection
+    resource: security-group
+    description: Detect Security Groups allowing SSH from the Internet
+    filters:
+      - type: ingress
+        IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        Cidr: 0.0.0.0/0

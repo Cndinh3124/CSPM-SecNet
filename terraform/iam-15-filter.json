@@ -1,0 +1,8 @@
+{
+  "ComplianceSecurityControlId": [
+    {
+      "Value": "IAM.15",
+      "Comparison": "EQUALS"
+    }
+  ]
+}

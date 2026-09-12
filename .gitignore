@@ -1,36 +1,51 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Secrets / credentials
+*.csv
+keypas.txt
+.env
+.env.*
+!.env.example
+
 # Terraform
 .terraform/
 *.tfstate
 *.tfstate.*
-.terraform.lock.hcl
-
-# Terraform variables/secrets
+crash.log
+crash.*.log
 *.tfvars
 *.tfvars.json
 
-# AWS credentials
-.aws/
-credentials
-config
+# Generated outputs
+output/
+tests/outputs/
 
-# Python
-__pycache__/
-*.py[cod]
-.venv/
-venv/
-env/
-
-# Environment files
-.env
-.env.*
-
-# Logs
-*.log
-
-# IDE
+# OS / IDE
 .vscode/
 .idea/
-
-# OS
 .DS_Store
 Thumbs.db
+
+# CSPM generated test artifacts
+policies/output-*/
+tests/custodian-output*/
+tests/ec2-2-dryrun/
+tests/ec2-2-remediation/
+tests/ec2-53-dryrun/
+tests/ec2-53-remediation/
+
+# Cloud Custodian generated files
+**/custodian-run.log
+**/metadata.json
+**/resources.json
+
+# CloudTrail downloaded/generated logs
+terraform/cloudtrail-logs/
+*.json.gz
+
+# CloudTrail evidence containing AWS identity/access metadata
+policies/cloudtrail-log.json

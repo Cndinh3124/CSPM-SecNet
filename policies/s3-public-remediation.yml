@@ -1,0 +1,10 @@
+policies:
+  - name: cspm-s3-public-remediation
+    resource: s3
+    description: Remediate S3 buckets without Public Access Block
+    filters:
+      - type: check-public-block
+        BlockPublicAcls: false
+    actions:
+      - type: set-public-block
+        state: true

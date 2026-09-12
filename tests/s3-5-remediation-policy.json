@@ -1,0 +1,51 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AWSConfigBucketPermissionsCheck",
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "config.amazonaws.com"
+      },
+      "Action": "s3:GetBucketAcl",
+      "Resource": "arn:aws:s3:::cspm-lab-19710b7d40b4bf9d418461d2d5",
+      "Condition": {
+        "StringEquals": {
+          "AWS:SourceAccount": "392024306192"
+        }
+      }
+    },
+    {
+      "Sid": "AWSConfigBucketDelivery",
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "config.amazonaws.com"
+      },
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::cspm-lab-19710b7d40b4bf9d418461d2d5/AWSLogs/392024306192/Config/*",
+      "Condition": {
+        "StringEquals": {
+          "AWS:SourceAccount": "392024306192"
+        },
+        "StringLike": {
+          "s3:x-amz-acl": "bucket-owner-full-control"
+        }
+      }
+    },
+    {
+      "Sid": "DenyInsecureTransport",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:*",
+      "Resource": [
+        "arn:aws:s3:::cspm-lab-19710b7d40b4bf9d418461d2d5",
+        "arn:aws:s3:::cspm-lab-19710b7d40b4bf9d418461d2d5/*"
+      ],
+      "Condition": {
+        "Bool": {
+          "aws:SecureTransport": "false"
+        }
+      }
+    }
+  ]
+}

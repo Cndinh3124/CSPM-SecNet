@@ -1,0 +1,20 @@
+{
+  "ComplianceSecurityControlId": [
+    {
+      "Value": "CloudTrail.2",
+      "Comparison": "EQUALS"
+    }
+  ],
+  "ResourceId": [
+    {
+      "Value": "arn:aws:cloudtrail:ap-southeast-1:392024306192:trail/cspm-cloudtrail",
+      "Comparison": "EQUALS"
+    }
+  ],
+  "RecordState": [
+    {
+      "Value": "ACTIVE",
+      "Comparison": "EQUALS"
+    }
+  ]
+}

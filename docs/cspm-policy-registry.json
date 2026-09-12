@@ -1,0 +1,170 @@
+{
+  "project": "CSPM",
+  "provider": "AWS",
+  "region": "ap-southeast-1",
+  "benchmark": "CIS AWS Foundations Benchmark",
+  "remediation_policy": {
+    "default_action": "SKIP",
+    "require_explicit_scope": true,
+    "allow_production_resources": false
+  },
+  "policies": [
+    {
+      "control_id": "EC2.2",
+      "resource": "security-group",
+      "description": "Default Security Group không được phép có inbound hoặc outbound rule không an toàn",
+      "detection": {
+        "primary": "AWS Config",
+        "compliance": "AWS Security Hub",
+        "automation": "Cloud Custodian"
+      },
+      "remediation": {
+        "type": "cloud-custodian",
+        "status": "implemented",
+        "scope": {
+          "mode": "tag",
+          "key": "CSPMTest",
+          "value": "true"
+        }
+      },
+      "severity": "MEDIUM",
+      "status": "DONE"
+    },
+    {
+      "control_id": "EC2.6",
+      "resource": "vpc",
+      "description": "VPC phải được bật VPC Flow Logs",
+      "detection": {
+        "primary": "AWS Config",
+        "compliance": "AWS Security Hub"
+      },
+      "remediation": {
+        "type": "aws-cli",
+        "status": "implemented",
+        "scope": {
+          "mode": "tag",
+          "key": "CSPMTest",
+          "value": "true"
+        }
+      },
+      "severity": "MEDIUM",
+      "status": "DONE"
+    },
+    {
+      "control_id": "EC2.53",
+      "resource": "security-group",
+      "description": "Không cho phép SSH từ Internet thông qua 0.0.0.0/0",
+      "detection": {
+        "primary": "Cloud Custodian",
+        "compliance": "AWS Security Hub"
+      },
+      "remediation": {
+        "type": "cloud-custodian",
+        "status": "implemented",
+        "scope": {
+          "mode": "tag",
+          "key": "CSPMTest",
+          "value": "true"
+        }
+      },
+      "severity": "MEDIUM",
+      "status": "DONE"
+    },
+    {
+      "control_id": "S3.1",
+      "resource": "s3-account",
+      "description": "S3 Public Access Block phải được bật",
+      "detection": {
+        "primary": "AWS Config",
+        "compliance": "AWS Security Hub"
+      },
+      "remediation": {
+        "type": "aws-cli",
+        "status": "implemented",
+        "scope": {
+          "mode": "explicit",
+          "allowed_resources": []
+        }
+      },
+      "severity": "MEDIUM",
+      "status": "DONE"
+    },
+    {
+      "control_id": "S3.5",
+      "resource": "s3-bucket",
+      "description": "S3 bucket phải yêu cầu sử dụng TLS",
+      "detection": {
+        "primary": "AWS Config",
+        "compliance": "AWS Security Hub"
+      },
+      "remediation": {
+        "type": "s3-bucket-policy",
+        "status": "implemented",
+        "scope": {
+          "mode": "tag",
+          "key": "CSPMTest",
+          "value": "true"
+        }
+      },
+      "severity": "MEDIUM",
+      "status": "DONE"
+    },
+    {
+      "control_id": "S3.22",
+      "resource": "s3",
+      "description": "S3 phải ghi nhận object-level write events",
+      "detection": {
+        "primary": "AWS Config",
+        "compliance": "AWS Security Hub"
+      },
+      "remediation": {
+        "type": "cloudtrail",
+        "status": "implemented",
+        "scope": {
+          "mode": "explicit",
+          "allowed_resources": []
+        }
+      },
+      "severity": "MEDIUM",
+      "status": "DONE"
+    },
+    {
+      "control_id": "S3.23",
+      "resource": "s3",
+      "description": "S3 phải ghi nhận object-level read events",
+      "detection": {
+        "primary": "AWS Config",
+        "compliance": "AWS Security Hub"
+      },
+      "remediation": {
+        "type": "cloudtrail",
+        "status": "implemented",
+        "scope": {
+          "mode": "explicit",
+          "allowed_resources": []
+        }
+      },
+      "severity": "MEDIUM",
+      "status": "DONE"
+    },
+    {
+      "control_id": "CloudTrail.2",
+      "resource": "cloudtrail",
+      "description": "CloudTrail log phải được mã hóa at-rest",
+      "detection": {
+        "primary": "AWS Config",
+        "compliance": "AWS Security Hub"
+      },
+      "remediation": {
+        "type": "terraform-kms",
+        "status": "implemented",
+        "scope": {
+          "mode": "explicit",
+          "allowed_resources": []
+        }
+      },
+      "severity": "MEDIUM",
+      "status": "DONE"
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+policies:
+  - name: cspm-s3-inventory
+    resource: s3

@@ -1,0 +1,8 @@
+{
+  "ComplianceSecurityControlId": [
+    {
+      "Value": "EC2.6",
+      "Comparison": "EQUALS"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+policies:
+  - name: cspm-ssh-public-remediation
+    resource: security-group
+    description: Remediate public SSH access on CSPM test Security Group
+    filters:
+      - "tag:CSPMTest": "true"
+      - type: ingress
+        IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        Cidr: 0.0.0.0/0
+    actions:
+      - type: remove-permissions
+        ingress: matched

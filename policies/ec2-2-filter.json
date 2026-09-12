@@ -1,0 +1,14 @@
+{
+  "ComplianceSecurityControlId": [
+    {
+      "Value": "EC2.2",
+      "Comparison": "EQUALS"
+    }
+  ],
+  "RecordState": [
+    {
+      "Value": "ACTIVE",
+      "Comparison": "EQUALS"
+    }
+  ]
+}
