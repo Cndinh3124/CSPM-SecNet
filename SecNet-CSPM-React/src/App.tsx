@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
+import "./auth.css";
 import {
   AlertTriangle,
   Bell,
@@ -40,6 +41,11 @@ import {
   getRemediationRun,
   getRemediationAudit,
   getFindings,
+  getAccessToken,
+  getStoredUser,
+  getCurrentUser,
+  login,
+  logout,
 } from "./api";
 
 import type {
@@ -51,6 +57,83 @@ import type {
   RemediationRun,
   RemediationAuditLog,
 } from "./types";
+
+
+/* ============================================================
+   LOGIN
+   ============================================================ */
+
+type AuthUser = {
+  id: number;
+  email: string;
+  role: string;
+};
+
+function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => void }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    if (!email.trim() || !password) {
+      setError("Vui lòng nhập email và mật khẩu.");
+      return;
+    }
+    try {
+      setLoading(true);
+      setError("");
+      const response = await login(email.trim(), password);
+      onLogin(response.user);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Đăng nhập thất bại.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="secnet-login">
+      <div className="secnet-login-grid">
+        <section className="secnet-login-brand">
+          <div className="secnet-login-logo">
+            <div className="brand-mark"><ShieldCheck size={25} /></div>
+            <div><strong>SecNet</strong><span>CSPM CONSOLE</span></div>
+          </div>
+          <span className="secnet-login-badge"><span /> AWS SECURITY POSTURE MANAGEMENT</span>
+          <h1>Secure your cloud.<br /><em>See every risk.</em></h1>
+          <p>Centralized visibility, CIS compliance monitoring and controlled remediation for AWS cloud infrastructure.</p>
+          <div className="secnet-login-stats">
+            <div><b>CIS</b><span>Compliance</span></div>
+            <div><b>AWS</b><span>Native</span></div>
+            <div><b>RBAC</b><span>Protected</span></div>
+          </div>
+          <div className="secnet-author"><small>PROJECT AUTHOR</small><b>Nguyễn Công Định</b><span>Truyền thông và Mạng máy tính · Trường Cao đẳng Công nghệ Thủ Đức</span></div>
+        </section>
+
+        <section className="secnet-login-form-wrap">
+          <form className="secnet-login-form" onSubmit={handleSubmit}>
+            <small>SECURE ACCESS</small>
+            <h2>Welcome back</h2>
+            <p>Sign in to access your AWS security posture.</p>
+            {error && <div className="secnet-login-error"><XCircle size={17}/><span>{error}</span></div>}
+            <label>Email address</label>
+            <input type="email" autoComplete="username" value={email} onChange={e => setEmail(e.target.value)} placeholder="admin@example.com" disabled={loading}/>
+            <label>Password</label>
+            <div className="secnet-password">
+              <input type={showPassword ? "text" : "password"} autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Enter your password" disabled={loading}/>
+              <button type="button" onClick={() => setShowPassword(v => !v)}>{showPassword ? "Hide" : "Show"}</button>
+            </div>
+            <button className="secnet-login-button" type="submit" disabled={loading}>{loading ? "AUTHENTICATING..." : "SIGN IN TO SECNET"}</button>
+            <div className="secnet-login-security"><ShieldCheck size={14}/> JWT protected · RBAC enabled</div>
+          </form>
+        </section>
+      </div>
+    </div>
+  );
+}
 
 /* ============================================================
    NAVIGATION
@@ -99,6 +182,13 @@ const nav = [
    ============================================================ */
 
 function App() {
+  const [user, setUser] = useState<AuthUser | null>(() => {
+    const token = getAccessToken();
+    const stored = getStoredUser();
+    return token && stored ? stored : null;
+  });
+  const [authChecking, setAuthChecking] = useState(true);
+
   const [scans, setScans] = useState<Scan[]>([]);
   const [detail, setDetail] = useState<ScanDetail | null>(null);
 
@@ -107,6 +197,23 @@ function App() {
 
   const [error, setError] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    async function restoreSession() {
+      if (!getAccessToken()) {
+        setAuthChecking(false);
+        return;
+      }
+      try {
+        setUser(await getCurrentUser());
+      } catch {
+        setUser(null);
+      } finally {
+        setAuthChecking(false);
+      }
+    }
+    restoreSession();
+  }, []);
 
   /* ----------------------------------------------------------
      REFRESH DATA
@@ -152,8 +259,22 @@ function App() {
      ---------------------------------------------------------- */
 
   useEffect(() => {
+    if (authChecking || !user) {
+      return;
+    }
+
     refresh(false);
-  }, []);
+  }, [authChecking, user]);
+
+  if (authChecking) {
+    return <div className="secnet-auth-loading"><RefreshCw className="spin" size={25}/><span>Authenticating SecNet...</span></div>;
+  }
+
+  if (!user) {
+    return <LoginPage onLogin={setUser} />;
+  }
+
+  const isAdmin = user.role.toUpperCase() === "ADMIN";
 
   return (
     <div className="app-shell">
@@ -265,7 +386,7 @@ function App() {
 
             AWS
 
-            <span>•</span>
+            <span>·</span>
 
             ap-southeast-1
 
@@ -290,12 +411,18 @@ function App() {
               <Bell size={18} />
             </button>
 
-            <button
-              className="avatar"
-              title="SecNet operator"
-            >
-              ND
-            </button>
+            <div className="top-user">
+              <div className="top-user-info">
+                <b>{user.email}</b>
+                <span>{user.role}</span>
+              </div>
+              <button className="avatar" title={`${user.email} · ${user.role}`}>
+                {user.email.slice(0, 2).toUpperCase()}
+              </button>
+              <button className="icon-button" title="Logout" onClick={logout}>
+                <XCircle size={18} />
+              </button>
+            </div>
 
           </div>
 
@@ -341,6 +468,7 @@ function App() {
                   onRefresh={() =>
                     refresh()
                   }
+                  isAdmin={isAdmin}
                   onRunScan={async () => {
                     try {
                       setError("");
@@ -351,7 +479,7 @@ function App() {
                           "ap-southeast-1",
                         scope: "LAB",
                         requested_by:
-                          "Nguyen Cong Dinh",
+                          user.email,
                       });
 
                       await refresh();
@@ -420,6 +548,8 @@ function App() {
                 <Remediation
                   detail={detail}
                   onRefresh={() => refresh()}
+                  isAdmin={isAdmin}
+                  user={user}
                 />
               }
             />
@@ -520,12 +650,14 @@ function Overview({
   refreshing,
   onRefresh,
   onRunScan,
+  isAdmin,
 }: {
   detail: ScanDetail | null;
   loading: boolean;
   refreshing: boolean;
   onRefresh: () => void;
   onRunScan: () => void;
+  isAdmin: boolean;
 }) {
   const navigate = useNavigate();
 
@@ -551,8 +683,8 @@ function Overview({
       active: 0,
       passed: 0,
       failed: 0,
+      resolved: 0,
       unknown: 0,
-      stale: 0,
     };
 
   const score =
@@ -585,14 +717,12 @@ function Overview({
               Refresh
             </button>
 
-            <button
-              className="btn primary"
-              onClick={onRunScan}
-            >
-              <Play size={16} />
-
-              Run Scan
-            </button>
+            {isAdmin && (
+              <button className="btn primary" onClick={onRunScan}>
+                <Play size={16} />
+                Run Scan
+              </button>
+            )}
           </>
         }
       />
@@ -971,25 +1101,26 @@ function RiskDonut({
     active: number;
     passed: number;
     failed: number;
+    resolved?: number;
     unknown: number;
-    stale?: number;
   };
 }) {
-  const total =
-    Math.max(
-      Number(summary.active || 0),
-      1
-    );
+  const total = Math.max(
+    Number(summary.active || 0),
+    1
+  );
 
-  const pass =
-    (Number(summary.passed || 0) /
-      total) *
-    100;
+  const passed = Number(summary.passed || 0);
+  const failed = Number(summary.failed || 0);
+  const resolved = Number(summary.resolved || 0);
+  const unknown = Number(summary.unknown || 0);
 
-  const risk =
-    (Number(summary.failed || 0) /
-      total) *
-    100;
+  const passPercent = (passed / total) * 100;
+  const riskPercent = (failed / total) * 100;
+  const resolvedPercent = (resolved / total) * 100;
+
+  const riskEnd = passPercent + riskPercent;
+  const resolvedEnd = riskEnd + resolvedPercent;
 
   return (
     <div className="donut-wrap">
@@ -998,13 +1129,10 @@ function RiskDonut({
         className="donut"
         style={{
           background: `conic-gradient(
-            #18b889 ${pass}%,
-            #e0445b ${pass}% ${
-              pass + risk
-            }%,
-            #657184 ${
-              pass + risk
-            }% 100%
+            #18b889 0% ${passPercent}%,
+            #e0445b ${passPercent}% ${riskEnd}%,
+            #657184 ${riskEnd}% ${resolvedEnd}%,
+            #8b95a7 ${resolvedEnd}% 100%
           )`,
         }}
       >
@@ -1026,7 +1154,6 @@ function RiskDonut({
       <div className="legend">
 
         <div>
-
           <i className="dot good" />
 
           <span>
@@ -1034,13 +1161,11 @@ function RiskDonut({
           </span>
 
           <b>
-            {summary.passed}
+            {passed}
           </b>
-
         </div>
 
         <div>
-
           <i className="dot bad" />
 
           <span>
@@ -1048,13 +1173,28 @@ function RiskDonut({
           </span>
 
           <b>
-            {summary.failed}
+            {failed}
           </b>
-
         </div>
 
         <div>
+          <i
+            className="dot"
+            style={{
+              background: "#657184",
+            }}
+          />
 
+          <span>
+            Resolved
+          </span>
+
+          <b>
+            {resolved}
+          </b>
+        </div>
+
+        <div>
           <i className="dot unknown" />
 
           <span>
@@ -1062,9 +1202,8 @@ function RiskDonut({
           </span>
 
           <b>
-            {summary.unknown}
+            {unknown}
           </b>
-
         </div>
 
       </div>
@@ -1168,7 +1307,7 @@ function FindingTable({
 
                   <b>
                     {finding.risk_score ??
-                      "—"}
+                      "?"}
                   </b>
 
                 </td>
@@ -1575,7 +1714,7 @@ function Findings({
         <div className="panel-heading-row">
           <PanelTitle
             title="Security Findings"
-            subtitle="Dữ liệu được lấy trực tiếp từ endpoint /api/v1/findings với bộ lọc server-side."
+        subtitle="Dữ liệu được lấy trực tiếp từ endpoint /api/v1/findings với bộ lọc server-side."
           />
 
           {detail?.scan && (
@@ -1758,7 +1897,7 @@ function FindingDetail({
             label="Risk Score"
             value={String(
               finding.risk_score ??
-                "—"
+                "?"
             )}
           />
 
@@ -1925,7 +2064,7 @@ function Compliance({
       <PageHeader
         eyebrow="SECNET / CIS"
         title="Compliance"
-        subtitle="CIS AWS Foundations controls trong scan gần nhất."
+        subtitle="CIS AWS Foundations controls trong scan gáº§n nháº¥t."
       />
 
       {/* COMPLIANCE KPI */}
@@ -2321,9 +2460,9 @@ function Resources({
                     colSpan={6}
                     className="empty"
                   >
-                    Resource detail chưa
-                    được expose trong
-                    scan detail hiện tại.
+                    Resource detail chưa được expose trong scan detail hiện tại.
+
+
                   </td>
 
                 </tr>
@@ -2349,9 +2488,13 @@ function Resources({
 function Remediation({
   detail,
   onRefresh,
+  isAdmin,
+  user,
 }: {
   detail: ScanDetail | null;
   onRefresh: () => void;
+  isAdmin: boolean;
+  user: AuthUser;
 }) {
   const [candidates, setCandidates] = useState<RemediationCandidate[]>([]);
   const [run, setRun] = useState<RemediationRun | null>(null);
@@ -2427,7 +2570,8 @@ function Remediation({
       setError("");
       setMessage("");
 
-      const created = await createRemediationPlan("Nguyen Cong Dinh");
+      if (!isAdmin) return;
+      const created = await createRemediationPlan(user.email);
       setRun(created);
 
       // Load immediately so PLAN_CREATED appears in the UI.
@@ -2455,10 +2599,8 @@ function Remediation({
       setError("");
       setMessage("");
 
-      const approved = await approveRemediation(
-        run.id,
-        "Nguyen Cong Dinh"
-      );
+      if (!isAdmin) return;
+      const approved = await approveRemediation(run.id, user.email);
 
       setRun(approved);
       await loadAuditLogs(approved.id);
@@ -2675,26 +2817,18 @@ function Remediation({
             </div>
           </div>
 
-          {run.status === "PLANNED" && (
+          {run.status === "PLANNED" && isAdmin && (
             <div className="header-actions">
-              <button
-                className="btn primary"
-                onClick={handleApprove}
-                disabled={processing}
-              >
+              <button className="btn primary" onClick={handleApprove} disabled={processing}>
                 <ShieldCheck size={16} />
                 Approve Plan
               </button>
             </div>
           )}
 
-          {run.status === "APPROVED" && (
+          {run.status === "APPROVED" && isAdmin && (
             <div className="header-actions">
-              <button
-                className="btn primary"
-                onClick={handleExecute}
-                disabled={processing}
-              >
+              <button className="btn primary" onClick={handleExecute} disabled={processing}>
                 <Play size={16} />
                 Execute
               </button>
@@ -2710,7 +2844,7 @@ function Remediation({
                 <p>
                   {run.status === "NO_ACTION"
                     ? "Không có candidate nào được phép thực thi trong scope hiện tại."
-                    : "Candidate đã được duyệt nhưng executor hiện tại đang ở chế độ Safe No-Op."}
+                    : "Không có candidate nào được phép thực thi do executor chưa được mở khóa."}
                 </p>
               </div>
             </div>
@@ -2923,18 +3057,12 @@ function Remediation({
             subtitle="Các finding được kiểm tra qua Scope Validator trước khi cho phép remediation."
           />
 
-          <button
-            className="btn primary"
-            onClick={handleCreatePlan}
-            disabled={
-              processing ||
-              loading ||
-              candidates.length === 0
-            }
-          >
-            <Play size={16} />
-            Create Plan
-          </button>
+          {isAdmin && (
+            <button className="btn primary" onClick={handleCreatePlan} disabled={processing || loading || candidates.length === 0}>
+              <Play size={16} />
+              Create Plan
+            </button>
+          )}
         </div>
 
         <div className="kpi-grid three">
@@ -3069,9 +3197,9 @@ function Remediation({
             <div>
               <b>Safety policy</b>
               <p>
-                Chỉ candidate được Scope Validator xác nhận
-                mới có thể chuyển sang ALLOW. Candidate SKIP
-                không được executor thực thi.
+                Chỉ candidate được Scope Validator xác nhận mới có thể chuyển sang ALLOW. Candidate SKIP không được executor thực thi.
+
+
               </p>
             </div>
           </div>
@@ -3144,7 +3272,7 @@ function Policies() {
       <PageHeader
         eyebrow="SECNET / GOVERNANCE"
         title="Policies"
-        subtitle="CSPM Policy Registry — control scope và remediation safety."
+        subtitle="CSPM Policy Registry · control scope và remediation safety."
       />
 
       <section className="panel">
@@ -3837,3 +3965,4 @@ function formatDate(
    ============================================================ */
 
 export default App;
+

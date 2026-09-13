@@ -67,3 +67,26 @@ terraform/lambda-test-response.json
 terraform/lambda-skip-test-event.json
 terraform/lambda-skip-test-response.json
 terraform/*.tfplan
+
+# Local Docker/ECR credential helpers
+.docker-ecr/
+.docker-ecr-push/
+terraform/.docker-ecr/
+
+# Local AWS deployment/config artifacts
+acm-validation.json
+cloudfront-api-current.json
+cloudfront-config.json
+cloudfront-current.json
+cloudfront-update.json
+cspm-dns.json
+s3-cloudfront-policy.json
+
+# Local backups
+*.before-encoding-fix
+*.before-final-encoding-fix
+*.before-line-by-line-fix
+*.before-mojibake-token-fix
+
+# Local Terraform planning notes
+terraform/plan.txt

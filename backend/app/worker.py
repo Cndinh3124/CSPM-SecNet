@@ -23,26 +23,140 @@ def utcnow():
     return datetime.now(timezone.utc)
 
 
-def process_scan(scan_id: int):
+def _finding_priority(item: dict) -> int:
+    """
+    Determine which finding representation should win when
+    CSPM Scanner and Security Hub return the same finding_id.
+
+    Priority:
+        2 = AWS Security Hub
+        1 = CSPM Scanner
+        0 = unknown/other
+    """
+
+    source = str(
+        item.get("source", "")
+    ).strip().lower()
+
+    if source == "aws security hub":
+        return 2
+
+    if source == "cspm scanner":
+        return 1
+
+    return 0
+
+
+def _deduplicate_findings(
+    findings: list[dict],
+) -> list[dict]:
+    """
+    Deduplicate findings by finding_id.
+
+    The same finding can be returned by both:
+        - CSPM Scanner
+        - AWS Security Hub
+
+    Since findings.finding_id is UNIQUE in PostgreSQL, only one
+    representation of each finding_id may be persisted.
+
+    When duplicates exist, prefer the AWS Security Hub
+    representation because it contains Security Hub-specific
+    workflow and record-state metadata.
+    """
+
+    unique_findings: dict[str, dict] = {}
+    duplicate_count = 0
+
+    for item in findings:
+
+        finding_id = item.get(
+            "finding_id"
+        )
+
+        if not finding_id:
+            continue
+
+        existing = unique_findings.get(
+            finding_id
+        )
+
+        if existing is None:
+            unique_findings[
+                finding_id
+            ] = item
+            continue
+
+        duplicate_count += 1
+
+        current_priority = _finding_priority(
+            item
+        )
+
+        existing_priority = _finding_priority(
+            existing
+        )
+
+        if current_priority > existing_priority:
+            unique_findings[
+                finding_id
+            ] = item
+
+    if duplicate_count:
+
+        logger.info(
+            "Deduplicated findings | input=%s | unique=%s | duplicates=%s",
+            len(findings),
+            len(unique_findings),
+            duplicate_count,
+        )
+
+    else:
+
+        logger.info(
+            "No duplicate findings detected | total=%s",
+            len(unique_findings),
+        )
+
+    return list(
+        unique_findings.values()
+    )
+
+
+def process_scan(
+    scan_id: int,
+):
     db = SessionLocal()
 
     try:
-        scan_record = db.get(Scan, scan_id)
+
+        scan_record = db.get(
+            Scan,
+            scan_id,
+        )
 
         if not scan_record:
-            logger.error("Scan %s not found", scan_id)
+
+            logger.error(
+                "Scan %s not found",
+                scan_id,
+            )
+
             return
 
         if scan_record.status != "QUEUED":
+
             logger.info(
                 "Scan %s skipped because status is %s",
                 scan_id,
                 scan_record.status,
             )
+
             return
 
         scan_record.status = "RUNNING"
         scan_record.started_at = utcnow()
+
         db.commit()
 
         logger.info(
@@ -60,7 +174,10 @@ def process_scan(scan_id: int):
             region=scan_record.region,
         )
 
-        summary = result.get("summary", {})
+        summary = result.get(
+            "summary",
+            {},
+        )
 
         scan_record.total_controls = summary.get(
             "total_controls",
@@ -82,7 +199,10 @@ def process_scan(scan_id: int):
             0,
         )
 
-        findings = result.get("findings", [])
+        findings = result.get(
+            "findings",
+            [],
+        )
 
         logger.info(
             "CSPM Scanner completed | scan=%s | controls=%s | findings=%s",
@@ -103,6 +223,7 @@ def process_scan(scan_id: int):
         securityhub_findings = []
 
         try:
+
             securityhub_service = SecurityHubService(
                 region=scan_record.region,
             )
@@ -119,6 +240,7 @@ def process_scan(scan_id: int):
             )
 
             for raw_finding in raw_securityhub_findings:
+
                 normalized = (
                     securityhub_service.finding_to_cspm(
                         raw_finding
@@ -130,8 +252,10 @@ def process_scan(scan_id: int):
                 )
 
         except Exception as exc:
+
             # Security Hub integration must not prevent
             # the existing CSPM Scanner from completing.
+
             logger.exception(
                 "Security Hub collection failed: %s",
                 exc,
@@ -141,22 +265,43 @@ def process_scan(scan_id: int):
         # 3. Merge CSPM + Security Hub Findings
         # =====================================================
 
-        all_findings = list(findings)
+        raw_total_findings = (
+            len(findings)
+            + len(securityhub_findings)
+        )
+
+        all_findings = list(
+            findings
+        )
 
         all_findings.extend(
             securityhub_findings
         )
 
         logger.info(
-            "Scan %s | CSPM findings=%s | Security Hub findings=%s | total=%s",
+            "Scan %s | CSPM findings=%s | Security Hub findings=%s | raw total=%s",
             scan_id,
             len(findings),
             len(securityhub_findings),
+            raw_total_findings,
+        )
+
+        # =====================================================
+        # 4. Deduplicate Findings
+        # =====================================================
+
+        all_findings = _deduplicate_findings(
+            all_findings
+        )
+
+        logger.info(
+            "Scan %s | unique findings=%s",
+            scan_id,
             len(all_findings),
         )
 
         # =====================================================
-        # 4. Build unique resource collection
+        # 5. Build unique resource collection
         #
         # A single AWS resource can appear in multiple findings.
         # Keep one representation per resource_id.
@@ -165,11 +310,16 @@ def process_scan(scan_id: int):
         unique_resources = {}
 
         for item in all_findings:
-            resource_arn = item.get("resource")
 
-            # Security Hub normalized structure uses resource_id.
+            resource_arn = item.get(
+                "resource"
+            )
+
             if not resource_arn:
-                resource_arn = item.get("resource_id")
+
+                resource_arn = item.get(
+                    "resource_id"
+                )
 
             if not resource_arn:
                 continue
@@ -179,20 +329,36 @@ def process_scan(scan_id: int):
             )
 
             if existing is None:
-                unique_resources[resource_arn] = item
+
+                unique_resources[
+                    resource_arn
+                ] = item
+
                 continue
 
             # Keep the highest-risk representation.
+
             current_risk = (
-                item.get("risk_score", 0) or 0
+                item.get(
+                    "risk_score",
+                    0,
+                )
+                or 0
             )
 
             existing_risk = (
-                existing.get("risk_score", 0) or 0
+                existing.get(
+                    "risk_score",
+                    0,
+                )
+                or 0
             )
 
             if current_risk > existing_risk:
-                unique_resources[resource_arn] = item
+
+                unique_resources[
+                    resource_arn
+                ] = item
 
         logger.info(
             "Scan %s | unique resources=%s",
@@ -201,11 +367,26 @@ def process_scan(scan_id: int):
         )
 
         # =====================================================
-        # 5. Upsert Findings
+        # 6. UPSERT FINDINGS
+        #
+        # If finding_id does not exist:
+        #     INSERT
+        #
+        # If finding_id already exists:
+        #     UPDATE
+        #
+        # This prevents:
+        #
+        # duplicate key value violates unique constraint
+        #
+        # "ix_findings_finding_id"
         # =====================================================
 
         for item in all_findings:
-            finding_id = item.get("finding_id")
+
+            finding_id = item.get(
+                "finding_id"
+            )
 
             if not finding_id:
                 continue
@@ -225,7 +406,9 @@ def process_scan(scan_id: int):
 
             resource_arn = item.get(
                 "resource",
-                item.get("resource_id"),
+                item.get(
+                    "resource_id"
+                ),
             )
 
             resource_type = item.get(
@@ -237,13 +420,23 @@ def process_scan(scan_id: int):
                 "CSPM Scanner",
             )
 
+            # -------------------------------------------------
+            # Find existing record
+            # -------------------------------------------------
+
             finding = db.scalar(
                 select(Finding).where(
-                    Finding.finding_id == finding_id
+                    Finding.finding_id
+                    == finding_id
                 )
             )
 
+            # -------------------------------------------------
+            # INSERT
+            # -------------------------------------------------
+
             if finding is None:
+
                 finding = Finding(
                     finding_id=finding_id,
 
@@ -303,9 +496,16 @@ def process_scan(scan_id: int):
                     last_seen=utcnow(),
                 )
 
-                db.add(finding)
+                db.add(
+                    finding
+                )
+
+            # -------------------------------------------------
+            # UPDATE
+            # -------------------------------------------------
 
             else:
+
                 finding.control_id = item.get(
                     "control",
                     item.get(
@@ -367,22 +567,44 @@ def process_scan(scan_id: int):
                     finding.risk_level,
                 )
 
-                # Security Hub metadata is updated only when
-                # supplied by a Security Hub finding.
-                if "securityhub_workflow" in item:
-                    finding.securityhub_workflow = item.get(
-                        "securityhub_workflow"
+                # Security Hub metadata is updated only
+                # when supplied by a Security Hub finding.
+
+                if (
+                    "securityhub_workflow"
+                    in item
+                ):
+
+                    finding.securityhub_workflow = (
+                        item.get(
+                            "securityhub_workflow"
+                        )
                     )
 
-                if "securityhub_record_state" in item:
-                    finding.securityhub_record_state = item.get(
-                        "securityhub_record_state"
+                if (
+                    "securityhub_record_state"
+                    in item
+                ):
+
+                    finding.securityhub_record_state = (
+                        item.get(
+                            "securityhub_record_state"
+                        )
                     )
 
                 finding.last_seen = utcnow()
 
         # =====================================================
-        # 6. Upsert unique Resources
+        # 7. Flush Findings Before Resources
+        #
+        # This gives PostgreSQL an early consistency check
+        # before the transaction is completed.
+        # =====================================================
+
+        db.flush()
+
+        # =====================================================
+        # 8. UPSERT UNIQUE RESOURCES
         # =====================================================
 
         for resource_arn, item in unique_resources.items():
@@ -394,11 +616,17 @@ def process_scan(scan_id: int):
 
             resource = db.scalar(
                 select(Resource).where(
-                    Resource.resource_id == resource_arn
+                    Resource.resource_id
+                    == resource_arn
                 )
             )
 
+            # -------------------------------------------------
+            # INSERT RESOURCE
+            # -------------------------------------------------
+
             if resource is None:
+
                 resource = Resource(
                     resource_id=resource_arn,
 
@@ -428,9 +656,16 @@ def process_scan(scan_id: int):
                     last_seen=utcnow(),
                 )
 
-                db.add(resource)
+                db.add(
+                    resource
+                )
+
+            # -------------------------------------------------
+            # UPDATE RESOURCE
+            # -------------------------------------------------
 
             else:
+
                 resource.resource_type = item.get(
                     "resource_type",
                     resource.resource_type,
@@ -461,20 +696,24 @@ def process_scan(scan_id: int):
                 resource.last_seen = utcnow()
 
         # =====================================================
-        # 7. Complete Scan
+        # 9. Complete Scan
         # =====================================================
 
         scan_record.status = "COMPLETED"
+
         scan_record.finished_at = utcnow()
 
         db.commit()
 
         logger.info(
-            "Scan %s persisted successfully",
+            "Scan %s persisted successfully | findings=%s | resources=%s",
             scan_id,
+            len(all_findings),
+            len(unique_resources),
         )
 
     except Exception as exc:
+
         db.rollback()
 
         logger.exception(
@@ -489,13 +728,19 @@ def process_scan(scan_id: int):
         )
 
         if scan_record:
+
             scan_record.status = "FAILED"
-            scan_record.error_message = str(exc)
+
+            scan_record.error_message = str(
+                exc
+            )
+
             scan_record.finished_at = utcnow()
 
             db.commit()
 
     finally:
+
         db.close()
 
 
@@ -521,14 +766,17 @@ def _detect_service(
 
 
 def worker_loop():
+
     logger.info(
         "SecNet CSPM Worker started"
     )
 
     while True:
+
         db = SessionLocal()
 
         try:
+
             queued_scan = db.scalar(
                 select(Scan)
                 .where(
@@ -541,16 +789,25 @@ def worker_loop():
             )
 
             if queued_scan:
+
                 scan_id = queued_scan.id
+
             else:
+
                 scan_id = None
 
         finally:
+
             db.close()
 
         if scan_id:
-            process_scan(scan_id)
+
+            process_scan(
+                scan_id
+            )
+
         else:
+
             time.sleep(5)
 
 

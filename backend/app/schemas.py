@@ -196,3 +196,22 @@ class RemediationAuditLogListResponse(BaseModel):
     count: int
 
     value: list[RemediationAuditLogResponse]
+# ============================================================
+# AUTHENTICATION
+# ============================================================
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class UserResponse(BaseModel):
+    id: int
+    email: str
+    role: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str
+    user: UserResponse

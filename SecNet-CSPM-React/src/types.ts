@@ -68,7 +68,6 @@ export interface Control {
 // ============================================================
 // FINDING
 // ============================================================
-
 export interface Finding {
   id?: number;
 
@@ -84,9 +83,9 @@ export interface Finding {
 
   status?: string;
 
-  resource_id?: string;
+  resource_id?: string | null;
 
-  resource_type?: string;
+  resource_type?: string | null;
 
   region?: string;
 
@@ -96,10 +95,15 @@ export interface Finding {
 
   risk_level?: string;
 
+  securityhub_workflow?: string | null;
+
+  securityhub_record_state?: string | null;
+
   first_seen?: string;
 
   last_seen?: string;
 }
+
 
 
 // ============================================================

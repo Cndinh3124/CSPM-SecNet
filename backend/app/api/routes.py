@@ -6,9 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
+from app.auth import get_current_user, require_role
 from app.db import get_db
 
 from app.models import (
+    User,
     Scan,
     Finding,
     Resource,
@@ -35,7 +37,6 @@ from app.services.remediation_service import (
 )
 
 
-
 router = APIRouter()
 
 
@@ -54,7 +55,9 @@ def load_cspm_control_ids() -> list[str]:
     """Return controls explicitly governed by SecNet CSPM."""
     try:
         data = json.loads(
-            POLICY_REGISTRY_PATH.read_text(encoding="utf-8")
+            POLICY_REGISTRY_PATH.read_text(
+                encoding="utf-8"
+            )
         )
     except Exception:
         return []
@@ -70,6 +73,23 @@ CSPM_CONTROL_IDS = load_cspm_control_ids()
 
 
 # ============================================================
+# AUTHORIZATION HELPERS
+# ============================================================
+
+def get_user_email(
+    current_user: User,
+) -> str:
+    """
+    Return the authenticated user's email.
+
+    The email is taken from the authenticated database user,
+    never from a client-supplied request field.
+    """
+
+    return current_user.email
+
+
+# ============================================================
 # HEALTH
 # ============================================================
 
@@ -77,6 +97,13 @@ CSPM_CONTROL_IDS = load_cspm_control_ids()
 def health_db(
     db: Session = Depends(get_db),
 ):
+    """
+    Database health check.
+
+    This endpoint remains public because it is used by
+    infrastructure health checks.
+    """
+
     try:
         db.execute(func.now())
 
@@ -103,13 +130,26 @@ def health_db(
 def create_scan(
     payload: ScanCreate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_role("ADMIN")
+    ),
 ):
+    """
+    Create a new CSPM scan.
+
+    ADMIN only.
+
+    requested_by is taken from the authenticated user.
+    """
+
     scan = Scan(
         status="QUEUED",
         provider=payload.provider or "AWS",
         region=payload.region or "ap-southeast-1",
         scope=payload.scope or "LAB",
-        requested_by=payload.requested_by,
+        requested_by=get_user_email(
+            current_user
+        ),
     )
 
     db.add(scan)
@@ -122,7 +162,16 @@ def create_scan(
 @router.get("/scans")
 def list_scans(
     db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_role("ADMIN", "VIEWER")
+    ),
 ):
+    """
+    Return scan history.
+
+    ADMIN + VIEWER.
+    """
+
     scans = (
         db.query(Scan)
         .order_by(
@@ -144,7 +193,16 @@ def list_scans(
 def get_scan(
     scan_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_role("ADMIN", "VIEWER")
+    ),
 ):
+    """
+    Return one scan.
+
+    ADMIN + VIEWER.
+    """
+
     scan = (
         db.query(Scan)
         .filter(
@@ -172,6 +230,9 @@ def get_scan(
 def get_scan_detail(
     scan_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_role("ADMIN", "VIEWER")
+    ),
 ):
     """
     Return aggregated scan information
@@ -182,6 +243,9 @@ def get_scan_detail(
       - CIS control summary
       - Findings
       - Resource summary
+      - Resource inventory
+
+    ADMIN + VIEWER.
     """
 
     # --------------------------------------------------------
@@ -234,11 +298,6 @@ def get_scan_detail(
 
     # --------------------------------------------------------
     # 3. CIS control summary
-    #
-    # Compliance is scoped to the controls registered in the
-    # SecNet CSPM Policy Registry. Other Security Hub controls
-    # remain available through /findings and do not expand the
-    # SecNet compliance denominator.
     # --------------------------------------------------------
 
     control_map = {
@@ -253,7 +312,9 @@ def get_scan_detail(
     }
 
     for finding in findings:
-        control_id = str(finding.control_id or "UNKNOWN")
+        control_id = str(
+            finding.control_id or "UNKNOWN"
+        )
 
         if control_id not in control_map:
             continue
@@ -271,23 +332,30 @@ def get_scan_detail(
             "source": finding.source,
         }
 
-        status = str(finding.status or "").upper()
+        status = str(
+            finding.status or ""
+        ).upper()
 
         if status == "FAILED":
             control_map[control_id]["status"] = "FAILED"
             control_map[control_id]["failed"].append(item)
 
         elif status == "UNKNOWN":
-            if control_map[control_id]["status"] != "FAILED":
+            if (
+                control_map[control_id]["status"]
+                != "FAILED"
+            ):
                 control_map[control_id]["status"] = "UNKNOWN"
+
             control_map[control_id]["unknown"].append(item)
 
         else:
-            # A registered control with non-failed evidence is PASSED.
-            # UNKNOWN is only the initial state for a control that has
-            # no usable finding/evidence at all.
-            if control_map[control_id]["status"] != "FAILED":
+            if (
+                control_map[control_id]["status"]
+                != "FAILED"
+            ):
                 control_map[control_id]["status"] = "PASSED"
+
             control_map[control_id]["passed"].append(item)
 
     # --------------------------------------------------------
@@ -299,11 +367,24 @@ def get_scan_detail(
     for control_id in CSPM_CONTROL_IDS:
         control = control_map[control_id]
 
-        passed_count = len(control["passed"])
-        failed_count = len(control["failed"])
-        unknown_count = len(control["unknown"])
+        passed_count = len(
+            control["passed"]
+        )
 
-        total = passed_count + failed_count + unknown_count
+        failed_count = len(
+            control["failed"]
+        )
+
+        unknown_count = len(
+            control["unknown"]
+        )
+
+        total = (
+            passed_count
+            + failed_count
+            + unknown_count
+        )
+
         compliance = (
             (passed_count / total) * 100
             if total > 0
@@ -321,7 +402,10 @@ def get_scan_detail(
                 "failed_count": failed_count,
                 "unknown_count": unknown_count,
                 "total_findings": total,
-                "compliance_percent": round(compliance, 2),
+                "compliance_percent": round(
+                    compliance,
+                    2,
+                ),
             }
         )
 
@@ -329,26 +413,17 @@ def get_scan_detail(
     # 5. Resource summary
     # --------------------------------------------------------
 
-    resource_query = (
+    resources = (
         db.query(Resource)
         .filter(
             Resource.region == scan.region
         )
+        .order_by(
+            Resource.resource_type,
+            Resource.resource_id,
+        )
+        .all()
     )
-
-    if scan.started_at is not None:
-
-        resource_query = resource_query.filter(
-            Resource.last_seen >= scan.started_at
-        )
-
-    if scan.finished_at is not None:
-
-        resource_query = resource_query.filter(
-            Resource.last_seen <= scan.finished_at
-        )
-
-    resources = resource_query.all()
 
     resource_total = len(
         resources
@@ -358,7 +433,7 @@ def get_scan_detail(
         1
         for resource in resources
         if str(
-            resource.status
+            resource.status or ""
         ).upper() == "PASSED"
     )
 
@@ -366,31 +441,37 @@ def get_scan_detail(
         1
         for resource in resources
         if str(
-            resource.status
+            resource.status or ""
         ).upper() == "FAILED"
+    )
+
+    resource_resolved = sum(
+        1
+        for resource in resources
+        if str(
+            resource.status or ""
+        ).upper() == "RESOLVED"
     )
 
     resource_unknown = sum(
         1
         for resource in resources
         if str(
-            resource.status
+            resource.status or ""
         ).upper() == "UNKNOWN"
     )
 
     # --------------------------------------------------------
-    # 6. Build unique resource inventory
-    # --------------------------------------------------------
-    #
-    # The findings already contain the canonical resource
-    # identity, type, region, status and risk information.
-    # Build one inventory record per unique resource so the
-    # React Resources page can render the scan inventory
-    # without requiring any AWS-side changes.
+    # 6. Resource service helper
     # --------------------------------------------------------
 
-    def resource_service(resource_type: str | None) -> str:
-        rtype = str(resource_type or "").lower()
+    def resource_service(
+        resource_type: str | None,
+    ) -> str:
+
+        rtype = str(
+            resource_type or ""
+        ).lower()
 
         if "s3" in rtype:
             return "S3"
@@ -401,78 +482,96 @@ def get_scan_detail(
         if "ec2" in rtype or "vpc" in rtype:
             return "EC2"
 
+        if "rds" in rtype:
+            return "RDS"
+
+        if "iam" in rtype:
+            return "IAM"
+
+        if "kms" in rtype:
+            return "KMS"
+
         if "account" in rtype:
             return "AWS"
 
         if rtype.startswith("aws"):
-            parts = rtype[3:].split("::", 1)
-            return parts[0] if parts and parts[0] else "AWS"
+            parts = rtype[3:].split(
+                "::",
+                1,
+            )
+
+            return (
+                parts[0]
+                if parts and parts[0]
+                else "AWS"
+            )
 
         return "AWS"
 
-    resource_map = {}
+    # --------------------------------------------------------
+    # 7. Build resource inventory
+    # --------------------------------------------------------
 
-    for finding in findings:
-        resource_id = finding.resource_id
+    resource_inventory = []
 
-        if not resource_id:
-            continue
+    for resource in resources:
 
         status = str(
-            finding.status or "UNKNOWN"
+            resource.status or "UNKNOWN"
         ).upper()
-
-        current = resource_map.get(resource_id)
-
-        if current is None:
-            current = {
-                "resource_id": resource_id,
-                "resource_type": finding.resource_type,
-                "service": resource_service(
-                    finding.resource_type
-                ),
-                "region": finding.region,
-                "status": "PASSED",
-                "risk_score": 0,
-            }
-            resource_map[resource_id] = current
-
-        # A resource is FAILED if any finding for that
-        # resource is FAILED. UNKNOWN is used only when
-        # there is no FAILED finding but an UNKNOWN exists.
-        if status == "FAILED":
-            current["status"] = "FAILED"
-        elif (
-            status == "UNKNOWN"
-            and current["status"] != "FAILED"
-        ):
-            current["status"] = "UNKNOWN"
 
         try:
             risk_score = float(
-                finding.risk_score or 0
+                resource.risk_score or 0
             )
-        except (TypeError, ValueError):
+        except (
+            TypeError,
+            ValueError,
+        ):
             risk_score = 0
 
-        current["risk_score"] = max(
-            current["risk_score"],
-            risk_score,
+        resource_inventory.append(
+            {
+                "resource_id": resource.resource_id,
+                "resource_type": resource.resource_type,
+                "service": (
+                    resource.service
+                    or resource_service(
+                        resource.resource_type
+                    )
+                ),
+                "region": resource.region,
+                "status": status,
+                "risk_score": risk_score,
+                "first_seen": resource.first_seen,
+                "last_seen": resource.last_seen,
+            }
         )
 
-    resource_inventory = sorted(
-        resource_map.values(),
+    # --------------------------------------------------------
+    # 8. Sort resource inventory
+    # --------------------------------------------------------
+
+    resource_inventory.sort(
         key=lambda item: (
-            0 if item["status"] == "FAILED" else
-            1 if item["status"] == "UNKNOWN" else
-            2,
-            -float(item["risk_score"]),
-            item["resource_id"],
-        ),
+            0
+            if item["status"] == "FAILED"
+            else 1
+            if item["status"] == "UNKNOWN"
+            else 2
+            if item["status"] == "PASSED"
+            else 3
+            if item["status"] == "RESOLVED"
+            else 4,
+            -float(
+                item["risk_score"] or 0
+            ),
+            item["resource_id"] or "",
+        )
     )
 
     # --------------------------------------------------------
-    # 7. Response
+    # 9. Response
     # --------------------------------------------------------
 
     return {
@@ -497,8 +596,10 @@ def get_scan_detail(
 
         "resource_summary": {
             "active": resource_total,
+            "total": resource_total,
             "passed": resource_passed,
             "failed": resource_failed,
+            "resolved": resource_resolved,
             "unknown": resource_unknown,
         },
 
@@ -534,6 +635,7 @@ def get_scan_detail(
             "active_resources": resource_total,
             "passed_resources": resource_passed,
             "failed_resources": resource_failed,
+            "resolved_resources": resource_resolved,
             "unknown_resources": resource_unknown,
         },
     }
@@ -550,25 +652,19 @@ def list_findings(
     source: str | None = None,
     control_id: str | None = None,
     db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_role("ADMIN", "VIEWER")
+    ),
 ):
     """
     Return findings with optional server-side filters.
 
-    Supported filters:
-        status
-        severity
-        source
-        control_id
+    ADMIN + VIEWER.
 
-    This endpoint is READ-ONLY.
-    It does not modify AWS resources.
+    READ-ONLY.
     """
 
     query = db.query(Finding)
-
-    # --------------------------------------------------------
-    # Status filter
-    # --------------------------------------------------------
 
     if status:
         query = query.filter(
@@ -576,38 +672,22 @@ def list_findings(
             == status.strip().upper()
         )
 
-    # --------------------------------------------------------
-    # Severity filter
-    # --------------------------------------------------------
-
     if severity:
         query = query.filter(
             func.upper(Finding.severity)
             == severity.strip().upper()
         )
 
-    # --------------------------------------------------------
-    # Source filter
-    # --------------------------------------------------------
-
     if source:
         query = query.filter(
             Finding.source == source.strip()
         )
-
-    # --------------------------------------------------------
-    # CIS Control ID filter
-    # --------------------------------------------------------
 
     if control_id:
         query = query.filter(
             func.upper(Finding.control_id)
             == control_id.strip().upper()
         )
-
-    # --------------------------------------------------------
-    # Query result
-    # --------------------------------------------------------
 
     findings = (
         query
@@ -630,7 +710,16 @@ def list_findings(
 @router.get("/overview")
 def overview(
     db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_role("ADMIN", "VIEWER")
+    ),
 ):
+    """
+    Dashboard overview.
+
+    ADMIN + VIEWER.
+    """
+
     total_findings = (
         db.query(
             func.count(Finding.id)
@@ -707,13 +796,16 @@ def overview(
 )
 def get_remediation_candidates(
     db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_role("ADMIN", "VIEWER")
+    ),
 ):
     """
     Return current remediation candidates.
 
-    READ-ONLY.
+    ADMIN + VIEWER.
 
-    This endpoint does not modify AWS resources.
+    READ-ONLY.
     """
 
     candidates = build_candidates(
@@ -752,23 +844,30 @@ def get_remediation_candidates(
     response_model=RemediationPlanResponse,
 )
 def create_remediation_plan(
-    requested_by: str | None = None,
     db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_role("ADMIN")
+    ),
 ):
     """
     Create a remediation plan.
+
+    ADMIN only.
+
+    requested_by is taken from the authenticated user.
 
     IMPORTANT:
     This endpoint does NOT execute remediation.
 
     State:
-
         PLANNED
     """
 
     run, _candidates = create_remediation_run(
         db=db,
-        requested_by=requested_by,
+        requested_by=get_user_email(
+            current_user
+        ),
     )
 
     return serialize_run(run)
@@ -783,9 +882,14 @@ def create_remediation_plan(
 )
 def list_remediation_runs(
     db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_role("ADMIN", "VIEWER")
+    ),
 ):
     """
     Return remediation run history.
+
+    ADMIN + VIEWER.
     """
 
     runs = (
@@ -817,9 +921,14 @@ def list_remediation_runs(
 def get_remediation_run(
     run_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_role("ADMIN", "VIEWER")
+    ),
 ):
     """
     Return one remediation run.
+
+    ADMIN + VIEWER.
     """
 
     run = (
@@ -831,7 +940,6 @@ def get_remediation_run(
     )
 
     if not run:
-
         raise HTTPException(
             status_code=404,
             detail=(
@@ -853,24 +961,17 @@ def get_remediation_run(
 def get_remediation_audit(
     run_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_role("ADMIN", "VIEWER")
+    ),
 ):
     """
     Return audit history for a remediation run.
 
-    Audit events include:
-      - PLAN_CREATED
-      - PLAN_APPROVED
-      - EXECUTION_REQUESTED
-      - EXECUTION_BLOCKED
-      - EXECUTION_COMPLETED
+    ADMIN + VIEWER.
 
-    READ-ONLY:
-    This endpoint does not modify any AWS resource.
+    READ-ONLY.
     """
-
-    # --------------------------------------------------------
-    # 1. Validate remediation run
-    # --------------------------------------------------------
 
     run = (
         db.query(RemediationRun)
@@ -881,7 +982,6 @@ def get_remediation_audit(
     )
 
     if not run:
-
         raise HTTPException(
             status_code=404,
             detail=(
@@ -890,18 +990,10 @@ def get_remediation_audit(
             ),
         )
 
-    # --------------------------------------------------------
-    # 2. Get audit logs
-    # --------------------------------------------------------
-
     audit_logs = get_audit_logs(
         db=db,
         run_id=run_id,
     )
-
-    # --------------------------------------------------------
-    # 3. Response
-    # --------------------------------------------------------
 
     return {
         "run_id": run_id,
@@ -927,9 +1019,18 @@ def approve_remediation(
     run_id: int,
     payload: RemediationApprovalRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_role("ADMIN")
+    ),
 ):
     """
     Approve a remediation plan.
+
+    ADMIN only.
+
+    The authenticated user's email is used as
+    approved_by. The client supplied approved_by
+    field is intentionally ignored.
 
     IMPORTANT:
     Approval does NOT execute AWS remediation.
@@ -946,7 +1047,6 @@ def approve_remediation(
     )
 
     if not run:
-
         raise HTTPException(
             status_code=404,
             detail=(
@@ -956,15 +1056,15 @@ def approve_remediation(
         )
 
     try:
-
         run = approve_remediation_run(
             db=db,
             run=run,
-            approved_by=payload.approved_by,
+            approved_by=get_user_email(
+                current_user
+            ),
         )
 
     except ValueError as exc:
-
         raise HTTPException(
             status_code=409,
             detail=str(exc),
@@ -984,9 +1084,14 @@ def approve_remediation(
 def execute_remediation(
     run_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_role("ADMIN")
+    ),
 ):
     """
     Execute an approved remediation run.
+
+    ADMIN only.
 
     SAFETY:
     - Execution requires APPROVED status.
@@ -995,10 +1100,6 @@ def execute_remediation(
     - Current executor is a SAFE NO-OP.
     - No AWS resource is modified by this endpoint yet.
     """
-
-    # --------------------------------------------------------
-    # 1. Find remediation run
-    # --------------------------------------------------------
 
     run = (
         db.query(RemediationRun)
@@ -1009,7 +1110,6 @@ def execute_remediation(
     )
 
     if not run:
-
         raise HTTPException(
             status_code=404,
             detail=(
@@ -1018,27 +1118,17 @@ def execute_remediation(
             ),
         )
 
-    # --------------------------------------------------------
-    # 2. Execute through service
-    # --------------------------------------------------------
-
     try:
-
         run, _candidates = execute_remediation_run(
             db=db,
             run=run,
         )
 
     except ValueError as exc:
-
         raise HTTPException(
             status_code=409,
             detail=str(exc),
         )
-
-    # --------------------------------------------------------
-    # 3. Response
-    # --------------------------------------------------------
 
     return {
         "id": run.id,

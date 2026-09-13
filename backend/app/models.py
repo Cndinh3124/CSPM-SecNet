@@ -1,8 +1,16 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Integer, String, Text, Float
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
 
@@ -10,6 +18,104 @@ from app.db import Base
 def utcnow():
     return datetime.now(timezone.utc)
 
+
+# ============================================================
+# ROLE
+# ============================================================
+
+class Role(Base):
+    __tablename__ = "roles"
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        autoincrement=True,
+    )
+
+    name: Mapped[str] = mapped_column(
+        String(32),
+        unique=True,
+        nullable=False,
+        index=True,
+    )
+
+    description: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
+    )
+
+    users: Mapped[list["User"]] = relationship(
+        "User",
+        back_populates="role",
+    )
+
+
+# ============================================================
+# USER
+# ============================================================
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        autoincrement=True,
+    )
+
+    email: Mapped[str] = mapped_column(
+        String(255),
+        unique=True,
+        nullable=False,
+        index=True,
+    )
+
+    password_hash: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+
+    role_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("roles.id"),
+        nullable=False,
+        index=True,
+    )
+
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        onupdate=utcnow,
+        nullable=False,
+    )
+
+    role: Mapped["Role"] = relationship(
+        "Role",
+        back_populates="users",
+    )
+
+
+# ============================================================
+# SCAN
+# ============================================================
 
 class Scan(Base):
     __tablename__ = "scans"
@@ -86,6 +192,10 @@ class Scan(Base):
         nullable=True,
     )
 
+
+# ============================================================
+# FINDING
+# ============================================================
 
 class Finding(Base):
     __tablename__ = "findings"
@@ -180,6 +290,10 @@ class Finding(Base):
     )
 
 
+# ============================================================
+# RESOURCE
+# ============================================================
+
 class Resource(Base):
     __tablename__ = "resources"
 
@@ -228,6 +342,10 @@ class Resource(Base):
         default=utcnow,
     )
 
+
+# ============================================================
+# REMEDIATION RUN
+# ============================================================
 
 class RemediationRun(Base):
     __tablename__ = "remediation_runs"
@@ -294,6 +412,10 @@ class RemediationRun(Base):
         nullable=True,
     )
 
+
+# ============================================================
+# REMEDIATION AUDIT LOG
+# ============================================================
 
 class RemediationAuditLog(Base):
     __tablename__ = "remediation_audit_logs"
