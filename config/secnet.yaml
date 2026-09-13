@@ -1,0 +1,26 @@
+project: SecNet CSPM
+provider: AWS
+region: ap-southeast-1
+benchmark: CIS AWS Foundations Benchmark
+engine_version: "4.0"
+
+paths:
+  policy_registry: docs/cspm-policy-registry.json
+  output_dir: tests/outputs
+
+safety:
+  default_action: SKIP
+  require_explicit_scope: true
+  allow_production_resources: false
+  scope_tag_key: CSPMTest
+  scope_tag_value: "true"
+
+risk:
+  critical: 90
+  high: 70
+  medium: 40
+  low: 0
+
+alerting:
+  enabled: true
+  topic_arn: ""

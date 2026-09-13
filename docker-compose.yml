@@ -1,0 +1,56 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: secnet-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: secnet_cspm
+      POSTGRES_USER: secnet
+      POSTGRES_PASSWORD: secnet_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - secnet_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U secnet -d secnet_cspm"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: secnet-cspm-api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://secnet:secnet_dev@postgres:5432/secnet_cspm
+      AWS_REGION: ap-southeast-1
+      CSPM_SCOPE: LAB
+    volumes:
+      - ${USERPROFILE}/.aws:/root/.aws:ro
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: secnet-cspm-worker
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://secnet:secnet_dev@postgres:5432/secnet_cspm
+      AWS_REGION: ap-southeast-1
+      CSPM_SCOPE: LAB
+    volumes:
+      - ${USERPROFILE}/.aws:/root/.aws:ro
+    command: ["python", "-m", "app.worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  secnet_postgres_data:

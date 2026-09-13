@@ -48,4 +48,15 @@ terraform/cloudtrail-logs/
 *.json.gz
 
 # CloudTrail evidence containing AWS identity/access metadata
-policies/cloudtrail-log.json
+policies/cloudtrail-log.jsonnode_modules/
+dist/
+*.zip
+*.bak
+
+# React / Node
+SecNet-CSPM-React/node_modules/
+SecNet-CSPM-React/dist/
+
+# Generated / backup files
+*.zip
+*.bak
