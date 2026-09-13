@@ -1,4 +1,6 @@
 from datetime import datetime
+import json
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import desc, func
@@ -33,7 +35,38 @@ from app.services.remediation_service import (
 )
 
 
+
 router = APIRouter()
+
+
+# ============================================================
+# CSPM POLICY REGISTRY
+# ============================================================
+
+POLICY_REGISTRY_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "docs"
+    / "cspm-policy-registry.json"
+)
+
+
+def load_cspm_control_ids() -> list[str]:
+    """Return controls explicitly governed by SecNet CSPM."""
+    try:
+        data = json.loads(
+            POLICY_REGISTRY_PATH.read_text(encoding="utf-8")
+        )
+    except Exception:
+        return []
+
+    return [
+        str(policy["control_id"])
+        for policy in data.get("policies", [])
+        if policy.get("control_id")
+    ]
+
+
+CSPM_CONTROL_IDS = load_cspm_control_ids()
 
 
 # ============================================================
@@ -201,23 +234,29 @@ def get_scan_detail(
 
     # --------------------------------------------------------
     # 3. CIS control summary
+    #
+    # Compliance is scoped to the controls registered in the
+    # SecNet CSPM Policy Registry. Other Security Hub controls
+    # remain available through /findings and do not expand the
+    # SecNet compliance denominator.
     # --------------------------------------------------------
 
-    control_map = {}
+    control_map = {
+        control_id: {
+            "control_id": control_id,
+            "status": "UNKNOWN",
+            "passed": [],
+            "failed": [],
+            "unknown": [],
+        }
+        for control_id in CSPM_CONTROL_IDS
+    }
 
     for finding in findings:
-
-        control_id = finding.control_id
+        control_id = str(finding.control_id or "UNKNOWN")
 
         if control_id not in control_map:
-
-            control_map[control_id] = {
-                "control_id": control_id,
-                "status": "PASSED",
-                "passed": [],
-                "failed": [],
-                "unknown": [],
-            }
+            continue
 
         item = {
             "finding_id": finding.finding_id,
@@ -232,35 +271,24 @@ def get_scan_detail(
             "source": finding.source,
         }
 
-        status = str(
-            finding.status or ""
-        ).upper()
+        status = str(finding.status or "").upper()
 
         if status == "FAILED":
-
             control_map[control_id]["status"] = "FAILED"
-
-            control_map[control_id]["failed"].append(
-                item
-            )
+            control_map[control_id]["failed"].append(item)
 
         elif status == "UNKNOWN":
-
-            if (
-                control_map[control_id]["status"]
-                != "FAILED"
-            ):
+            if control_map[control_id]["status"] != "FAILED":
                 control_map[control_id]["status"] = "UNKNOWN"
-
-            control_map[control_id]["unknown"].append(
-                item
-            )
+            control_map[control_id]["unknown"].append(item)
 
         else:
-
-            control_map[control_id]["passed"].append(
-                item
-            )
+            # A registered control with non-failed evidence is PASSED.
+            # UNKNOWN is only the initial state for a control that has
+            # no usable finding/evidence at all.
+            if control_map[control_id]["status"] != "FAILED":
+                control_map[control_id]["status"] = "PASSED"
+            control_map[control_id]["passed"].append(item)
 
     # --------------------------------------------------------
     # 4. Build control list
@@ -268,39 +296,19 @@ def get_scan_detail(
 
     controls = []
 
-    for control_id in sorted(
-        control_map.keys()
-    ):
-
+    for control_id in CSPM_CONTROL_IDS:
         control = control_map[control_id]
 
-        passed_count = len(
-            control["passed"]
+        passed_count = len(control["passed"])
+        failed_count = len(control["failed"])
+        unknown_count = len(control["unknown"])
+
+        total = passed_count + failed_count + unknown_count
+        compliance = (
+            (passed_count / total) * 100
+            if total > 0
+            else 0
         )
-
-        failed_count = len(
-            control["failed"]
-        )
-
-        unknown_count = len(
-            control["unknown"]
-        )
-
-        total = (
-            passed_count
-            + failed_count
-            + unknown_count
-        )
-
-        if total > 0:
-
-            compliance = (
-                passed_count / total
-            ) * 100
-
-        else:
-
-            compliance = 0
 
         controls.append(
             {
@@ -313,10 +321,7 @@ def get_scan_detail(
                 "failed_count": failed_count,
                 "unknown_count": unknown_count,
                 "total_findings": total,
-                "compliance_percent": round(
-                    compliance,
-                    2,
-                ),
+                "compliance_percent": round(compliance, 2),
             }
         )
 
@@ -374,7 +379,100 @@ def get_scan_detail(
     )
 
     # --------------------------------------------------------
-    # 6. Response
+    # 6. Build unique resource inventory
+    # --------------------------------------------------------
+    #
+    # The findings already contain the canonical resource
+    # identity, type, region, status and risk information.
+    # Build one inventory record per unique resource so the
+    # React Resources page can render the scan inventory
+    # without requiring any AWS-side changes.
+    # --------------------------------------------------------
+
+    def resource_service(resource_type: str | None) -> str:
+        rtype = str(resource_type or "").lower()
+
+        if "s3" in rtype:
+            return "S3"
+
+        if "cloudtrail" in rtype:
+            return "CloudTrail"
+
+        if "ec2" in rtype or "vpc" in rtype:
+            return "EC2"
+
+        if "account" in rtype:
+            return "AWS"
+
+        if rtype.startswith("aws"):
+            parts = rtype[3:].split("::", 1)
+            return parts[0] if parts and parts[0] else "AWS"
+
+        return "AWS"
+
+    resource_map = {}
+
+    for finding in findings:
+        resource_id = finding.resource_id
+
+        if not resource_id:
+            continue
+
+        status = str(
+            finding.status or "UNKNOWN"
+        ).upper()
+
+        current = resource_map.get(resource_id)
+
+        if current is None:
+            current = {
+                "resource_id": resource_id,
+                "resource_type": finding.resource_type,
+                "service": resource_service(
+                    finding.resource_type
+                ),
+                "region": finding.region,
+                "status": "PASSED",
+                "risk_score": 0,
+            }
+            resource_map[resource_id] = current
+
+        # A resource is FAILED if any finding for that
+        # resource is FAILED. UNKNOWN is used only when
+        # there is no FAILED finding but an UNKNOWN exists.
+        if status == "FAILED":
+            current["status"] = "FAILED"
+        elif (
+            status == "UNKNOWN"
+            and current["status"] != "FAILED"
+        ):
+            current["status"] = "UNKNOWN"
+
+        try:
+            risk_score = float(
+                finding.risk_score or 0
+            )
+        except (TypeError, ValueError):
+            risk_score = 0
+
+        current["risk_score"] = max(
+            current["risk_score"],
+            risk_score,
+        )
+
+    resource_inventory = sorted(
+        resource_map.values(),
+        key=lambda item: (
+            0 if item["status"] == "FAILED" else
+            1 if item["status"] == "UNKNOWN" else
+            2,
+            -float(item["risk_score"]),
+            item["resource_id"],
+        ),
+    )
+
+    # --------------------------------------------------------
+    # 7. Response
     # --------------------------------------------------------
 
     return {
@@ -403,6 +501,8 @@ def get_scan_detail(
             "failed": resource_failed,
             "unknown": resource_unknown,
         },
+
+        "resources": resource_inventory,
 
         "findings": [
             {
@@ -445,10 +545,72 @@ def get_scan_detail(
 
 @router.get("/findings")
 def list_findings(
+    status: str | None = None,
+    severity: str | None = None,
+    source: str | None = None,
+    control_id: str | None = None,
     db: Session = Depends(get_db),
 ):
+    """
+    Return findings with optional server-side filters.
+
+    Supported filters:
+        status
+        severity
+        source
+        control_id
+
+    This endpoint is READ-ONLY.
+    It does not modify AWS resources.
+    """
+
+    query = db.query(Finding)
+
+    # --------------------------------------------------------
+    # Status filter
+    # --------------------------------------------------------
+
+    if status:
+        query = query.filter(
+            func.upper(Finding.status)
+            == status.strip().upper()
+        )
+
+    # --------------------------------------------------------
+    # Severity filter
+    # --------------------------------------------------------
+
+    if severity:
+        query = query.filter(
+            func.upper(Finding.severity)
+            == severity.strip().upper()
+        )
+
+    # --------------------------------------------------------
+    # Source filter
+    # --------------------------------------------------------
+
+    if source:
+        query = query.filter(
+            Finding.source == source.strip()
+        )
+
+    # --------------------------------------------------------
+    # CIS Control ID filter
+    # --------------------------------------------------------
+
+    if control_id:
+        query = query.filter(
+            func.upper(Finding.control_id)
+            == control_id.strip().upper()
+        )
+
+    # --------------------------------------------------------
+    # Query result
+    # --------------------------------------------------------
+
     findings = (
-        db.query(Finding)
+        query
         .order_by(
             desc(Finding.last_seen)
         )

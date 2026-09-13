@@ -60,3 +60,10 @@ SecNet-CSPM-React/dist/
 # Generated / backup files
 *.zip
 *.bak
+
+# Lambda local test artifacts
+terraform/lambda-test-event.json
+terraform/lambda-test-response.json
+terraform/lambda-skip-test-event.json
+terraform/lambda-skip-test-response.json
+terraform/*.tfplan

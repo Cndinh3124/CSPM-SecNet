@@ -11,6 +11,7 @@ const BASE = (
   "http://localhost:8000/api/v1"
 ).replace(/\/$/, "");
 
+
 async function request<T>(
   path: string,
   init?: RequestInit,
@@ -25,7 +26,9 @@ async function request<T>(
 
   if (!res.ok) {
     const text = await res.text();
-    let message = text || `${res.status} ${res.statusText}`;
+
+    let message =
+      text || `${res.status} ${res.statusText}`;
 
     try {
       const parsed = JSON.parse(text);
@@ -52,7 +55,9 @@ async function request<T>(
 // ============================================================
 
 export async function getScans(): Promise<Scan[]> {
-  const data = await request<{ value?: Scan[] } | Scan[]>("/scans");
+  const data = await request<
+    { value?: Scan[] } | Scan[]
+  >("/scans");
 
   return Array.isArray(data)
     ? data
@@ -83,6 +88,106 @@ export async function createScan(payload: {
 
 
 // ============================================================
+// FINDINGS
+// ============================================================
+
+export interface Finding {
+  id: number;
+
+  finding_id: string;
+
+  control_id: string;
+
+  title: string;
+
+  description: string;
+
+  severity: string;
+
+  status: string;
+
+  resource_id: string | null;
+
+  resource_type: string | null;
+
+  region: string;
+
+  source: string;
+
+  risk_score: number;
+
+  risk_level: string;
+
+  securityhub_workflow?: string | null;
+
+  securityhub_record_state?: string | null;
+
+  first_seen: string;
+
+  last_seen: string;
+}
+
+
+export interface FindingsResponse {
+  value: Finding[];
+
+  Count: number;
+}
+
+
+export interface FindingFilters {
+  status?: string;
+
+  severity?: string;
+
+  source?: string;
+
+  control_id?: string;
+}
+
+
+export async function getFindings(
+  filters: FindingFilters = {},
+): Promise<FindingsResponse> {
+  const params = new URLSearchParams();
+
+  if (filters.status) {
+    params.set(
+      "status",
+      filters.status,
+    );
+  }
+
+  if (filters.severity) {
+    params.set(
+      "severity",
+      filters.severity,
+    );
+  }
+
+  if (filters.source) {
+    params.set(
+      "source",
+      filters.source,
+    );
+  }
+
+  if (filters.control_id) {
+    params.set(
+      "control_id",
+      filters.control_id,
+    );
+  }
+
+  const query = params.toString();
+
+  return request<FindingsResponse>(
+    `/findings${query ? `?${query}` : ""}`,
+  );
+}
+
+
+// ============================================================
 // REMEDIATION CANDIDATES
 // ============================================================
 
@@ -93,7 +198,9 @@ export interface RemediationCandidatesResponse {
 
   summary: {
     total_candidates: number;
+
     allowed: number;
+
     skipped: number;
   };
 }
@@ -169,6 +276,7 @@ export async function approveRemediation(
     `/remediation/runs/${runId}/approve`,
     {
       method: "POST",
+
       body: JSON.stringify({
         approved_by: approvedBy,
       }),

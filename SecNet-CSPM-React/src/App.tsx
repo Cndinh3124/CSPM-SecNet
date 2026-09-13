@@ -26,6 +26,7 @@ import {
   Routes,
   useNavigate,
   useParams,
+  useSearchParams,
 } from "react-router-dom";
 
 import {
@@ -38,6 +39,7 @@ import {
   executeRemediation,
   getRemediationRun,
   getRemediationAudit,
+  getFindings,
 } from "./api";
 
 import type {
@@ -1275,98 +1277,224 @@ function Findings({
 }: {
   detail: ScanDetail | null;
 }) {
-  const navigate =
-    useNavigate();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const [query, setQuery] =
-    useState("");
+  const [query, setQuery] = useState("");
+  const [status, setStatus] = useState(
+    searchParams.get("status") || "FAILED"
+  );
+  const [severity, setSeverity] = useState(
+    searchParams.get("severity") || "ALL"
+  );
+  const [source, setSource] = useState(
+    searchParams.get("source") || "ALL"
+  );
+  const [controlId, setControlId] = useState(
+    searchParams.get("control") || ""
+  );
 
-  const [severity, setSeverity] =
-    useState("ALL");
+  const [rows, setRows] = useState<Finding[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const rows =
-    (detail?.findings || [])
-      .filter(
-        (finding) => {
+  async function loadFindings() {
+    try {
+      setLoading(true);
+      setError("");
 
-          const severityMatch =
-            severity === "ALL" ||
-            String(
-              finding.severity ||
-                finding.risk_level
-            ).toUpperCase() ===
-              severity;
+      const response = await getFindings({
+        status: status === "ALL" ? undefined : status,
+        severity: severity === "ALL" ? undefined : severity,
+        source: source === "ALL" ? undefined : source,
+        control_id: controlId.trim() || undefined,
+      });
 
-          const searchMatch =
-            JSON.stringify(
-              finding
-            )
-              .toLowerCase()
-              .includes(
-                query.toLowerCase()
-              );
+      setRows(response.value || []);
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message
+          : "Không thể tải findings từ CSPM API."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
 
-          return (
-            severityMatch &&
-            searchMatch
-          );
-        }
-      )
+  useEffect(() => {
+    loadFindings();
+  }, [status, severity, source, controlId]);
+
+  useEffect(() => {
+    const next = new URLSearchParams();
+
+    if (status !== "ALL") next.set("status", status);
+    if (severity !== "ALL") next.set("severity", severity);
+    if (source !== "ALL") next.set("source", source);
+    if (controlId.trim()) next.set("control", controlId.trim());
+
+    setSearchParams(next, { replace: true });
+  }, [status, severity, source, controlId, setSearchParams]);
+
+  const filteredRows = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+
+    return [...rows]
+      .filter((finding) => {
+        if (!normalizedQuery) return true;
+
+        return JSON.stringify(finding)
+          .toLowerCase()
+          .includes(normalizedQuery);
+      })
       .sort(
         (a, b) =>
           (b.risk_score || 0) -
           (a.risk_score || 0)
       );
+  }, [rows, query]);
+
+  const failedCount = rows.filter(
+    (finding) =>
+      String(finding.status).toUpperCase() === "FAILED"
+  ).length;
+
+  const criticalCount = rows.filter(
+    (finding) =>
+      String(finding.severity).toUpperCase() === "CRITICAL"
+  ).length;
+
+  const highCount = rows.filter(
+    (finding) =>
+      String(finding.severity).toUpperCase() === "HIGH"
+  ).length;
+
+  const mediumCount = rows.filter(
+    (finding) =>
+      String(finding.severity).toUpperCase() === "MEDIUM"
+  ).length;
+
+  const lowCount = rows.filter(
+    (finding) =>
+      String(finding.severity).toUpperCase() === "LOW"
+  ).length;
+
+  const resetFilters = () => {
+    setStatus("FAILED");
+    setSeverity("ALL");
+    setSource("ALL");
+    setControlId("");
+    setQuery("");
+  };
 
   return (
     <>
-
       <PageHeader
         eyebrow="SECNET / INVESTIGATION"
         title="Findings"
-        subtitle="Điều tra và ưu tiên các vấn đề bảo mật được phát hiện."
+        subtitle="Điều tra và ưu tiên các vấn đề bảo mật được phát hiện từ CSPM Engine và AWS Security Hub."
         actions={
           <button
             className="btn secondary"
-            onClick={() =>
-              location.reload()
-            }
+            onClick={loadFindings}
+            disabled={loading}
           >
-            <RefreshCw size={16} />
+            <RefreshCw
+              size={16}
+              className={loading ? "spin" : ""}
+            />
             Refresh
           </button>
         }
       />
 
+      {/* FINDING SUMMARY */}
+
+      <div className="kpi-grid">
+        <Kpi
+          label="Active Findings"
+          value={String(rows.length)}
+          meta="Current API result"
+          icon={<ShieldAlert />}
+          tone={rows.length ? "bad" : "good"}
+        />
+
+        <Kpi
+          label="Critical"
+          value={String(criticalCount)}
+          meta="Critical severity"
+          icon={<AlertTriangle />}
+          tone={criticalCount ? "bad" : "good"}
+        />
+
+        <Kpi
+          label="High"
+          value={String(highCount)}
+          meta="High severity"
+          icon={<AlertTriangle />}
+          tone={highCount ? "bad" : "good"}
+        />
+
+        <Kpi
+          label="Medium / Low"
+          value={`${mediumCount} / ${lowCount}`}
+          meta={`${failedCount} failed in current result`}
+          icon={<CircleGauge />}
+          tone={mediumCount ? "warn" : "good"}
+        />
+      </div>
+
+      {/* FILTER TOOLBAR */}
+
       <div className="toolbar">
-
         <div className="filter-search">
-
           <Search size={16} />
 
           <input
             value={query}
             onChange={(event) =>
-              setQuery(
-                event.target.value
-              )
+              setQuery(event.target.value)
             }
             placeholder="Search findings, resources, controls..."
           />
-
         </div>
+
+        <select
+          value={status}
+          onChange={(event) =>
+            setStatus(event.target.value)
+          }
+        >
+          <option value="FAILED">
+            FAILED
+          </option>
+
+          <option value="RESOLVED">
+            RESOLVED
+          </option>
+
+          <option value="ARCHIVED">
+            ARCHIVED
+          </option>
+
+          <option value="ALL">
+            All status
+          </option>
+        </select>
 
         <select
           value={severity}
           onChange={(event) =>
-            setSeverity(
-              event.target.value
-            )
+            setSeverity(event.target.value)
           }
         >
-
           <option value="ALL">
             All severity
+          </option>
+
+          <option value="CRITICAL">
+            CRITICAL
           </option>
 
           <option value="HIGH">
@@ -1380,36 +1508,104 @@ function Findings({
           <option value="LOW">
             LOW
           </option>
-
         </select>
 
-        <span className="result-count">
-          {rows.length} findings
-        </span>
-
-      </div>
-
-      <section className="panel">
-
-        <FindingTable
-          findings={rows}
-          onSelect={(finding) =>
-            navigate(
-              `/findings/${encodeURIComponent(
-                finding.control_id
-              )}/${encodeURIComponent(
-                finding.resource_id ||
-                  String(
-                    finding.id ||
-                    "unknown"
-                  )
-              )}`
-            )
+        <select
+          value={source}
+          onChange={(event) =>
+            setSource(event.target.value)
           }
+        >
+          <option value="ALL">
+            All sources
+          </option>
+
+          <option value="AWS Security Hub">
+            AWS Security Hub
+          </option>
+
+          <option value="CSPM Engine">
+            CSPM Engine
+          </option>
+        </select>
+
+        <input
+          className="control-filter"
+          value={controlId}
+          onChange={(event) =>
+            setControlId(event.target.value.toUpperCase())
+          }
+          placeholder="Control ID"
+          aria-label="Control ID"
         />
 
-      </section>
+        <button
+          className="btn secondary"
+          onClick={resetFilters}
+        >
+          Reset
+        </button>
 
+        <span className="result-count">
+          {loading
+            ? "Loading..."
+            : `${filteredRows.length} findings`}
+        </span>
+      </div>
+
+      {error && (
+        <div className="callout bad">
+          <XCircle size={18} />
+
+          <div>
+            <b>Unable to load findings</b>
+            <p>{error}</p>
+          </div>
+
+          <button
+            className="btn secondary"
+            onClick={loadFindings}
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      <section className="panel">
+        <div className="panel-heading-row">
+          <PanelTitle
+            title="Security Findings"
+            subtitle="Dữ liệu được lấy trực tiếp từ endpoint /api/v1/findings với bộ lọc server-side."
+          />
+
+          {detail?.scan && (
+            <span className="result-count">
+              Latest scan #{detail.scan.id}
+            </span>
+          )}
+        </div>
+
+        {loading ? (
+          <Loading />
+        ) : (
+          <FindingTable
+            findings={filteredRows}
+            onSelect={(finding) =>
+              navigate(
+                `/findings/${encodeURIComponent(
+                  finding.control_id
+                )}/${encodeURIComponent(
+                  finding.resource_id ||
+                    String(
+                      finding.id ||
+                        "unknown"
+                    )
+                )}`
+              )
+            }
+          />
+        )}
+      </section>
     </>
   );
 }

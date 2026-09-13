@@ -169,6 +169,16 @@ class Finding(Base):
         default=utcnow,
     )
 
+    securityhub_workflow: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+    )
+
+    securityhub_record_state: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+    )
+
 
 class Resource(Base):
     __tablename__ = "resources"
