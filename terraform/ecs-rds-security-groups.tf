@@ -2,6 +2,7 @@
 # SecNet CSPM - ECS / RDS Security Groups
 # ============================================================
 
+
 # ============================================================
 # ECS Security Group
 # ============================================================
@@ -39,6 +40,7 @@ resource "aws_security_group" "secnet_ecs" {
   }
 }
 
+
 # ============================================================
 # RDS Security Group
 # ============================================================
@@ -48,14 +50,11 @@ resource "aws_security_group" "secnet_rds" {
   description = "Security group for SecNet CSPM PostgreSQL RDS"
   vpc_id      = aws_vpc.cspm.id
 
-  # PostgreSQL is accessible ONLY from ECS tasks.
-  ingress {
-    description     = "PostgreSQL from SecNet ECS"
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [aws_security_group.secnet_ecs.id]
-  }
+  # PostgreSQL ingress rules are managed separately
+  # using aws_security_group_rule resources.
+  #
+  # ECS -> RDS :5432
+  # Lambda -> RDS :5432
 
   egress {
     description = "Allow outbound traffic"
@@ -72,4 +71,19 @@ resource "aws_security_group" "secnet_rds" {
     ManagedBy   = "Terraform"
     Purpose     = "SecNet PostgreSQL"
   }
+}
+
+
+# ============================================================
+# RDS Ingress - ECS
+# ============================================================
+
+resource "aws_security_group_rule" "rds_from_ecs" {
+  type                     = "ingress"
+  description              = "PostgreSQL from SecNet ECS"
+  from_port                = 5432
+  to_port                  = 5432
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.secnet_rds.id
+  source_security_group_id = aws_security_group.secnet_ecs.id
 }

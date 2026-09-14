@@ -39,6 +39,16 @@ resource "aws_ecs_service" "secnet_api" {
     ManagedBy   = "Terraform"
     Purpose     = "SecNet CSPM API"
   }
+
+  # AWS hiện đang chạy revision :3 và có ALB.
+  # Terraform config hiện tại chưa quản lý đầy đủ 2 phần này.
+  # Không để Terraform tự downgrade hoặc xóa ALB.
+  lifecycle {
+    ignore_changes = [
+      task_definition,
+      load_balancer
+    ]
+  }
 }
 
 # ============================================================
