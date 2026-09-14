@@ -1,0 +1,81 @@
+{
+    "containerDefinitions":  [
+                                 {
+                                     "name":  "api",
+                                     "image":  "392024306192.dkr.ecr.ap-southeast-1.amazonaws.com/secnet-cspm-api:latest",
+                                     "cpu":  0,
+                                     "portMappings":  [
+                                                          {
+                                                              "containerPort":  8000,
+                                                              "hostPort":  8000,
+                                                              "protocol":  "tcp"
+                                                          }
+                                                      ],
+                                     "essential":  true,
+                                     "environment":  [
+                                                         {
+                                                             "name":  "AWS_REGION",
+                                                             "value":  "ap-southeast-1"
+                                                         },
+                                                         {
+                                                             "name":  "DB_NAME",
+                                                             "value":  "secnet_cspm"
+                                                         },
+                                                         {
+                                                             "name":  "DB_SECRET_ARN",
+                                                             "value":  "arn:aws:secretsmanager:ap-southeast-1:392024306192:secret:rds!db-a22ac30c-8001-4dfe-aaef-4cd5231967d7-JopBIq"
+                                                         },
+                                                         {
+                                                             "name":  "DB_HOST",
+                                                             "value":  "secnet-cspm-postgres.ctk8uomy61cl.ap-southeast-1.rds.amazonaws.com"
+                                                         },
+                                                         {
+                                                             "name":  "DB_PORT",
+                                                             "value":  "5432"
+                                                         },
+                                                         {
+                                                             "name":  "CSPM_SCOPE",
+                                                             "value":  "LAB"
+                                                         }
+                                                     ],
+                                     "mountPoints":  [
+
+                                                     ],
+                                     "volumesFrom":  [
+
+                                                     ],
+                                     "logConfiguration":  {
+                                                              "logDriver":  "awslogs",
+                                                              "options":  {
+                                                                              "awslogs-group":  "/ecs/secnet-cspm",
+                                                                              "awslogs-region":  "ap-southeast-1",
+                                                                              "awslogs-stream-prefix":  "api"
+                                                                          }
+                                                          },
+                                     "systemControls":  [
+
+                                                        ],
+                                     "secrets":  [
+                                                     {
+                                                         "valueFrom":  "arn:aws:secretsmanager:ap-southeast-1:392024306192:secret:secnet-cspm/jwt-Ay2UgS",
+                                                         "name":  "JWT_SECRET"
+                                                     }
+                                                 ]
+                                 }
+                             ],
+    "family":  "secnet-cspm-api",
+    "taskRoleArn":  "arn:aws:iam::392024306192:role/SecNet-CSPM-ECS-Task-Role",
+    "executionRoleArn":  "arn:aws:iam::392024306192:role/SecNet-CSPM-ECS-Execution-Role",
+    "networkMode":  "awsvpc",
+    "volumes":  [
+
+                ],
+    "placementConstraints":  [
+
+                             ],
+    "requiresCompatibilities":  [
+                                    "FARGATE"
+                                ],
+    "cpu":  "256",
+    "memory":  "512"
+}
