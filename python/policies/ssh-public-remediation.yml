@@ -4,7 +4,7 @@ policies:
     description: Remediate public SSH access on CSPM test Security Group
 
     filters:
-      - GroupId: sg-0704831de03c22a54
+      - GroupId: sg-06e5d390fed91dfad
       - type: ingress
         IpProtocol: tcp
         FromPort: 22

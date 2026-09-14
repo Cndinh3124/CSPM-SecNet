@@ -13,3 +13,5 @@ boto3==1.43.78
 python-jose[cryptography]==3.5.0
 
 bcrypt==5.0.0
+
+c7n==0.9.52
