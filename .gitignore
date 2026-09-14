@@ -90,3 +90,10 @@ s3-cloudfront-policy.json
 
 # Local Terraform planning notes
 terraform/plan.txt
+
+# CSPM realtime test artifacts
+lambda/package/
+terraform/event-pattern*.json
+terraform/event.json
+terraform/lambda-test.json
+terraform/sg-test-change.json
