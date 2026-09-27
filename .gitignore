@@ -48,7 +48,8 @@ terraform/cloudtrail-logs/
 *.json.gz
 
 # CloudTrail evidence containing AWS identity/access metadata
-policies/cloudtrail-log.jsonnode_modules/
+policies/cloudtrail-log.json
+node_modules/
 dist/
 *.zip
 *.bak
@@ -97,3 +98,8 @@ terraform/event-pattern*.json
 terraform/event.json
 terraform/lambda-test.json
 terraform/sg-test-change.json
+prowler-output/
+
+
+**/*.tfvars
+!**/*.tfvars.example

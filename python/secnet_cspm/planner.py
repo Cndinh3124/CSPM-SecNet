@@ -9,7 +9,7 @@ def build_plan(scan, region="ap-southeast-1"):
         if f.get("status") != "FAILED":
             continue
         decision = validator.validate(f.get("resource"), f.get("resource_type"))
-        control = next((c for c in registry.get("controls", []) if c["id"] == f.get("control")), {})
+        control = next((c for c in registry.get("policies", []) if c["control_id"] == f.get("control")), {})
         items.append({
             "control": f.get("control"),
             "resource": f.get("resource"),

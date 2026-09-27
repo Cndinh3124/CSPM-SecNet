@@ -1,6 +1,5 @@
 import json
 import subprocess
-from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -22,7 +21,6 @@ EXECUTION_LOG_FILE = (
 
 
 def load_plan():
-
     if not PLAN_FILE.exists():
         raise FileNotFoundError(
             f"Không tìm thấy remediation plan: {PLAN_FILE}"
@@ -31,21 +29,18 @@ def load_plan():
     with open(
         PLAN_FILE,
         "r",
-        encoding="utf-8"
+        encoding="utf-8",
     ) as file:
         return json.load(file)
 
 
 def execute_cloud_custodian(item):
-
-    control_id = item.get(
-        "control_id"
-    )
+    control_id = item.get("control")
 
     if control_id == "EC2.53":
-
         policy_file = (
             PROJECT_ROOT
+            / "python"
             / "policies"
             / "ec2-53.yml"
         )
@@ -64,7 +59,7 @@ def execute_cloud_custodian(item):
 
         output_dir.mkdir(
             parents=True,
-            exist_ok=True
+            exist_ok=True,
         )
 
         command = [
@@ -74,14 +69,14 @@ def execute_cloud_custodian(item):
             "-s",
             str(output_dir),
             "--cache-period",
-            "0"
+            "0",
         ]
 
         result = subprocess.run(
             command,
             capture_output=True,
             text=True,
-            cwd=PROJECT_ROOT
+            cwd=PROJECT_ROOT,
         )
 
         return {
@@ -89,47 +84,44 @@ def execute_cloud_custodian(item):
             "return_code": result.returncode,
             "stdout": result.stdout,
             "stderr": result.stderr,
-            "success": result.returncode == 0
+            "success": result.returncode == 0,
         }
 
     raise ValueError(
-        f"Chưa hỗ trợ remediation type/control: "
-        f"{control_id}"
+        f"Chưa hỗ trợ remediation control: {control_id}"
     )
 
 
 def execute_item(item):
-
-    control_id = item.get(
-        "control_id"
-    )
-
-    resource_id = item.get(
-        "resource_id"
-    )
-
-    remediation_type = item.get(
-        "remediation_type"
-    )
+    control_id = item.get("control")
+    resource_id = item.get("resource")
 
     action = item.get(
-        "action"
+        "action",
+        {},
+    )
+
+    remediation_type = action.get("type")
+
+    allowed = item.get(
+        "allowed",
+        False,
     )
 
     # ---------------------------------------------------------
     # SAFETY CHECK
     # ---------------------------------------------------------
 
-    if action != "ALLOW":
-
+    if allowed is not True:
         return {
-            "control_id": control_id,
-            "resource_id": resource_id,
-            "action": action,
+            "control": control_id,
+            "resource": resource_id,
+            "allowed": False,
             "execution_status": "SKIPPED",
-            "reason": (
-                "Remediation item is not ALLOW"
-            )
+            "reason": item.get(
+                "reason",
+                "Remediation is not allowed",
+            ),
         }
 
     # ---------------------------------------------------------
@@ -137,239 +129,156 @@ def execute_item(item):
     # ---------------------------------------------------------
 
     try:
-
         if remediation_type == "cloud-custodian":
-
-            result = execute_cloud_custodian(
-                item
-            )
+            result = execute_cloud_custodian(item)
 
             return {
-                "control_id": control_id,
-                "resource_id": resource_id,
-                "action": "ALLOW",
+                "control": control_id,
+                "resource": resource_id,
+                "allowed": True,
                 "remediation_type": remediation_type,
                 "execution_status": (
                     "SUCCESS"
                     if result["success"]
                     else "FAILED"
                 ),
-                "return_code": result[
-                    "return_code"
-                ],
-                "stdout": result[
-                    "stdout"
-                ],
-                "stderr": result[
-                    "stderr"
-                ]
+                "return_code": result["return_code"],
+                "stdout": result["stdout"],
+                "stderr": result["stderr"],
             }
 
         return {
-            "control_id": control_id,
-            "resource_id": resource_id,
-            "action": "ALLOW",
+            "control": control_id,
+            "resource": resource_id,
+            "allowed": True,
             "remediation_type": remediation_type,
             "execution_status": "FAILED",
-            "reason": (
-                "Unsupported remediation type"
-            )
+            "reason": "Unsupported remediation type",
         }
 
     except Exception as error:
-
         return {
-            "control_id": control_id,
-            "resource_id": resource_id,
-            "action": "ALLOW",
+            "control": control_id,
+            "resource": resource_id,
+            "allowed": True,
             "remediation_type": remediation_type,
             "execution_status": "FAILED",
-            "reason": str(error)
+            "reason": str(error),
         }
 
 
 def execute_plan():
-
     plan_report = load_plan()
 
     plan = plan_report.get(
-        "plan",
-        []
+        "items",
+        [],
     )
 
     results = []
 
     for item in plan:
-
-        result = execute_item(
-            item
-        )
-
-        results.append(
-            result
-        )
+        result = execute_item(item)
+        results.append(result)
 
     return results
 
 
 def build_summary(results):
-
     total = len(results)
 
     success = sum(
         1
         for item in results
-        if item.get(
-            "execution_status"
-        ) == "SUCCESS"
+        if item.get("execution_status") == "SUCCESS"
     )
 
     failed = sum(
         1
         for item in results
-        if item.get(
-            "execution_status"
-        ) == "FAILED"
+        if item.get("execution_status") == "FAILED"
     )
 
     skipped = sum(
         1
         for item in results
-        if item.get(
-            "execution_status"
-        ) == "SKIPPED"
+        if item.get("execution_status") == "SKIPPED"
     )
 
     return {
         "total_items": total,
         "success": success,
         "failed": failed,
-        "skipped": skipped
+        "skipped": skipped,
     }
 
 
-def save_execution_log(
-    results,
-    summary
-):
-
+def save_execution_log(results, summary):
     report = {
-        "executor": (
-            "CSPM Remediation Executor"
-        ),
-
-        "version": "1.0",
-
-        "generated_at": datetime.now(
-            timezone.utc
-        ).isoformat(),
-
-        "source_plan": str(
-            PLAN_FILE
-        ),
-
+        "executor": "CSPM Remediation Executor",
+        "results": results,
         "summary": summary,
-
-        "execution_policy": {
-            "execute_only_allow": True,
-            "require_scope_validation": True,
-            "allow_production_resources": False
-        },
-
-        "results": results
     }
+
+    EXECUTION_LOG_FILE.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
     with open(
         EXECUTION_LOG_FILE,
         "w",
-        encoding="utf-8"
+        encoding="utf-8",
     ) as file:
-
         json.dump(
             report,
             file,
             ensure_ascii=False,
-            indent=2
+            indent=2,
         )
 
     return EXECUTION_LOG_FILE
 
 
-def print_results(
-    results,
-    summary
-):
+def main():
+    try:
+        results = execute_plan()
+        summary = build_summary(results)
 
-    print("=" * 70)
-    print("CSPM REMEDIATION EXECUTOR v1.0")
-    print("=" * 70)
-    print()
+        log_file = save_execution_log(
+            results,
+            summary,
+        )
 
-    print(
-        f"Total items : "
-        f"{summary['total_items']}"
-    )
-
-    print(
-        f"Success     : "
-        f"{summary['success']}"
-    )
-
-    print(
-        f"Failed      : "
-        f"{summary['failed']}"
-    )
-
-    print(
-        f"Skipped     : "
-        f"{summary['skipped']}"
-    )
-
-    print()
-
-    for item in results:
-
+        print("\n=== CSPM REMEDIATION RESULT ===")
         print(
-            f"[{item.get('execution_status')}] "
-            f"{item.get('control_id')}"
+            json.dumps(
+                summary,
+                ensure_ascii=False,
+                indent=2,
+            )
         )
 
         print(
-            f"  Resource : "
-            f"{item.get('resource_id', '-')}"
+            f"\nExecution log: {log_file}"
         )
 
-        if item.get("reason"):
+        print("\n=== DETAILS ===")
 
+        for result in results:
             print(
-                f"  Reason   : "
-                f"{item['reason']}"
+                json.dumps(
+                    result,
+                    ensure_ascii=False,
+                    indent=2,
+                )
             )
 
-        print()
-
-
-def main():
-
-    results = execute_plan()
-
-    summary = build_summary(
-        results
-    )
-
-    print_results(
-        results,
-        summary
-    )
-
-    output_file = save_execution_log(
-        results,
-        summary
-    )
-
-    print(
-        f"Execution log: {output_file}"
-    )
+    except Exception as error:
+        print(
+            f"Remediation executor failed: {error}"
+        )
+        raise
 
 
 if __name__ == "__main__":

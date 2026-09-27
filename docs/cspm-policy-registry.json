@@ -55,8 +55,9 @@
       "resource": "security-group",
       "description": "Không cho phép SSH từ Internet thông qua 0.0.0.0/0",
       "detection": {
-        "primary": "Cloud Custodian",
-        "compliance": "AWS Security Hub"
+        "primary": "Prowler",
+        "compliance": "CIS AWS Foundations BenchMark",
+	"automation": "Cloud Custodian"
       },
       "remediation": {
         "type": "cloud-custodian",
@@ -75,8 +76,9 @@
       "resource": "s3-account",
       "description": "S3 Public Access Block phải được bật",
       "detection": {
-        "primary": "AWS Config",
-        "compliance": "AWS Security Hub"
+        "primary": "Prowler",
+        "compliance": "CIS AWS Foundations Benchmark",
+	"automation": "Cloud Custodian"
       },
       "remediation": {
         "type": "aws-cli",

@@ -1,0 +1,30 @@
+policies:
+  - name: remediate-cspm-ssh-public
+    resource: aws.security-group
+
+    description: |
+      Detect and remove public SSH access from the CSPM lab
+      security group.
+
+      Target:
+        Security Group: CSPM-EC2-SG
+        Group ID: sg-0b0c1de2c7a2bc089
+
+      Violation:
+        TCP port 22 from 0.0.0.0/0
+
+    filters:
+      # Only target the CSPM laboratory Security Group
+      - GroupId: sg-0b0c1de2c7a2bc089
+
+      # Match only public SSH ingress
+      - type: ingress
+        IpProtocol: tcp
+        Ports:
+          - 22
+        Cidr: "0.0.0.0/0"
+
+    actions:
+      # Remove only the matched ingress permission
+      - type: remove-permissions
+        ingress: matched

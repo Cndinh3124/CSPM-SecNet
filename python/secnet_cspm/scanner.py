@@ -5,10 +5,10 @@ import tempfile
 from pathlib import Path
 
 from .securityhub import SecurityHubCollector
+from .prowler import _run_prowler_check, normalize_prowler_finding
 from .normalize import normalize
 from .risk import enrich_finding
 from .config import load_registry
-
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -71,19 +71,13 @@ def _run_custodian_detection(
         )
 
     if not policy_path.exists():
-        raise FileNotFoundError(
-            f"Cloud Custodian policy not found: {policy_path}"
-        )
+        raise FileNotFoundError(f"Cloud Custodian policy not found: {policy_path}")
 
     custodian = _find_custodian_executable()
 
     # Use a temporary output directory so every scan gets a
     # fresh result and stale resources.json files cannot be reused.
-    output_dir = Path(
-        tempfile.mkdtemp(
-            prefix=f"secnet-cspm-{control_id.lower()}-"
-        )
-    )
+    output_dir = Path(tempfile.mkdtemp(prefix=f"secnet-cspm-{control_id.lower()}-"))
 
     try:
 
@@ -128,9 +122,7 @@ def _run_custodian_detection(
         #   policy-name/
         #       resources.json
         #
-        resource_files = list(
-            output_dir.rglob("resources.json")
-        )
+        resource_files = list(output_dir.rglob("resources.json"))
 
         resources = []
 
@@ -138,17 +130,12 @@ def _run_custodian_detection(
 
             try:
 
-                data = json.loads(
-                    resource_file.read_text(
-                        encoding="utf-8"
-                    )
-                )
+                data = json.loads(resource_file.read_text(encoding="utf-8"))
 
             except Exception as exc:
 
                 raise RuntimeError(
-                    f"Unable to read Cloud Custodian output "
-                    f"{resource_file}: {exc}"
+                    f"Unable to read Cloud Custodian output " f"{resource_file}: {exc}"
                 ) from exc
 
             if isinstance(data, list):
@@ -185,11 +172,7 @@ def _custodian_finding(
 
     # Stable ID is important because the backend uses finding_id
     # for deduplication/upsert across repeated scans.
-    finding_id = (
-        f"cspm:cloud-custodian:"
-        f"{control_id}:"
-        f"{group_id}"
-    )
+    finding_id = f"cspm:cloud-custodian:" f"{control_id}:" f"{group_id}"
 
     matched_permissions = resource.get(
         "c7n:MatchedIpPermissions",
@@ -203,10 +186,7 @@ def _custodian_finding(
     finding = {
         "finding_id": finding_id,
         "control": control_id,
-        "title": (
-            "Security Group allows public SSH access "
-            "from the Internet"
-        ),
+        "title": ("Security Group allows public SSH access " "from the Internet"),
         "description": (
             "Cloud Custodian detected a Security Group "
             "allowing TCP port 22 from 0.0.0.0/0."
@@ -269,9 +249,7 @@ def _collect_custodian_control(
 
         findings.append(finding)
 
-        controls[control_id]["findings"].append(
-            finding
-        )
+        controls[control_id]["findings"].append(finding)
 
         controls[control_id]["failed"] += 1
 
@@ -312,9 +290,7 @@ def scan(region="ap-southeast-1"):
 
         controls[control_id] = {
             "control_id": control_id,
-            "resource": control.get(
-                "resource"
-            ),
+            "resource": control.get("resource"),
             "severity": control.get(
                 "severity",
                 "MEDIUM",
@@ -339,12 +315,16 @@ def scan(region="ap-southeast-1"):
             {},
         )
 
-        primary_detection = str(
-            detection.get(
-                "primary",
-                "AWS Security Hub",
+        primary_detection = (
+            str(
+                detection.get(
+                    "primary",
+                    "AWS Security Hub",
+                )
             )
-        ).strip().lower()
+            .strip()
+            .lower()
+        )
 
         # -----------------------------------------------------
         # Cloud Custodian detection
@@ -363,37 +343,81 @@ def scan(region="ap-southeast-1"):
 
             except Exception as exc:
 
-                controls[control_id]["status"] = (
-                    "UNKNOWN"
-                )
+                controls[control_id]["status"] = "UNKNOWN"
 
-                controls[control_id]["error"] = str(
-                    exc
-                )
+                controls[control_id]["error"] = str(exc)
 
                 controls[control_id]["unknown"] += 1
 
             continue
+        # ------------------------------------------------------
+        # Prowler detection
+        # ------------------------------------------------------
+        # -----------------------------------------------------
+        # Prowler detection
+        # -----------------------------------------------------
 
+        if primary_detection == "prowler":
+
+            try:
+
+                raw_findings = _run_prowler_check(
+                    control_id,
+                    region,
+                )
+                for raw in raw_findings:
+                    finding = normalize_prowler_finding(
+                        control,
+                        raw,
+                    )
+
+                    if finding.get("status") == "FAILED":
+                        finding = enrich_finding(finding)
+                    else:
+                        finding["risk_score"] = 0
+                        finding["risk_level"] = "NONE"
+
+                    findings.append(finding)
+                    controls[control_id]["findings"].append(finding)
+                    status = finding.get(
+                        "status",
+                        "UNKNOWN",
+                    )
+
+                    if status == "FAILED":
+
+                        controls[control_id]["failed"] += 1
+
+                    elif status == "PASSED":
+
+                        controls[control_id]["passed"] += 1
+
+                    else:
+
+                        controls[control_id]["unknown"] += 1
+
+            except Exception as exc:
+
+                controls[control_id]["status"] = "UNKNOWN"
+
+                controls[control_id]["error"] = str(exc)
+
+                controls[control_id]["unknown"] += 1
+
+            continue
         # -----------------------------------------------------
         # AWS Security Hub detection
         # -----------------------------------------------------
 
         try:
 
-            raw_findings = collector.findings(
-                control_id
-            )
+            raw_findings = collector.findings(control_id)
 
         except Exception as exc:
 
-            controls[control_id]["status"] = (
-                "UNKNOWN"
-            )
+            controls[control_id]["status"] = "UNKNOWN"
 
-            controls[control_id]["error"] = str(
-                exc
-            )
+            controls[control_id]["error"] = str(exc)
 
             controls[control_id]["unknown"] += 1
 
@@ -401,13 +425,9 @@ def scan(region="ap-southeast-1"):
 
         for raw in raw_findings:
 
-            finding = enrich_finding(
-                normalize(raw)
-            )
+            finding = enrich_finding(normalize(raw))
 
-            findings.append(
-                finding
-            )
+            findings.append(finding)
 
             finding_control = finding.get(
                 "control",
@@ -429,13 +449,9 @@ def scan(region="ap-southeast-1"):
                     "findings": [],
                 }
 
-            current = controls[
-                finding_control
-            ]
+            current = controls[finding_control]
 
-            current["findings"].append(
-                finding
-            )
+            current["findings"].append(finding)
 
             status = finding.get(
                 "status",
@@ -482,41 +498,27 @@ def scan(region="ap-southeast-1"):
     # NO_DATA is not considered PASSED.
     # ---------------------------------------------------------
 
-    total_controls = len(
-        controls
-    )
+    total_controls = len(controls)
 
     passed_controls = sum(
-        1
-        for control in controls.values()
-        if control["status"] == "PASSED"
+        1 for control in controls.values() if control["status"] == "PASSED"
     )
 
     failed_controls = sum(
-        1
-        for control in controls.values()
-        if control["status"] == "FAILED"
+        1 for control in controls.values() if control["status"] == "FAILED"
     )
 
     unknown_controls = sum(
-        1
-        for control in controls.values()
-        if control["status"] == "UNKNOWN"
+        1 for control in controls.values() if control["status"] == "UNKNOWN"
     )
 
     no_data_controls = sum(
-        1
-        for control in controls.values()
-        if control["status"] == "NO_DATA"
+        1 for control in controls.values() if control["status"] == "NO_DATA"
     )
 
     compliance = (
         round(
-            (
-                passed_controls
-                / total_controls
-            )
-            * 100,
+            (passed_controls / total_controls) * 100,
             2,
         )
         if total_controls
@@ -532,11 +534,8 @@ def scan(region="ap-southeast-1"):
             "engine_version": "4.0",
             "provider": "AWS",
             "region": region,
-            "benchmark": (
-                "CIS AWS Foundations Benchmark"
-            ),
+            "benchmark": ("CIS AWS Foundations Benchmark"),
         },
-
         "summary": {
             "total_controls": total_controls,
             "passed_controls": passed_controls,
@@ -546,10 +545,6 @@ def scan(region="ap-southeast-1"):
             "control_compliance_percent": compliance,
             "total_findings": len(findings),
         },
-
-        "controls": list(
-            controls.values()
-        ),
-
+        "controls": list(controls.values()),
         "findings": findings,
     }
