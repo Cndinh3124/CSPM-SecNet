@@ -1,0 +1,29 @@
+.env
+.venv/
+.venv-ai/
+__pycache__/
+*.pyc
+data/*.json
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+.venv-ai/
+__pycache__/
+*.py[cod]
+
+# Scan results and generated reports
+scan-results/
+output/
+data/
+dashboard.log
+
+# Terraform generated files
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.bak
