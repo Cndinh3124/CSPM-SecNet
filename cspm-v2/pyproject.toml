@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+[project]
+name = "secnet-cspm"
+version = "1.0.0"
+requires-python = ">=3.12"
+dependencies = ["google-genai>=1.0,<2", "openpyxl>=3.1,<4"]
+[project.scripts]
+cspm = "secnet_cspm.cli:main"
+[tool.setuptools.packages.find]
+where = ["src"]
