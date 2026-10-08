@@ -1,6 +1,18 @@
-aws_region="ap-southeast-1"
-project_name="SecNet-CSPM"
-environment="lab"
-allowed_ssh_cidr="10.50.0.0/16"
-enable_public_ssh_test=false
-enable_public_s3_test=false
+aws_region   = "ap-southeast-1"
+project_name = "SecNet-CSPM"
+environment  = "demo"
+
+# Keep this restricted for the baseline.
+allowed_ssh_cidr = "10.50.0.0/16"
+
+# Set to true only for the controlled Prowler public-SSH scenario.
+enable_public_ssh_test = true
+
+# Reserved for a later S3 scenario.
+enable_public_s3_test = false
+
+instance_type = "t3.micro"
+
+project_tags = {
+  Owner = "CSPM-Demo"
+}
