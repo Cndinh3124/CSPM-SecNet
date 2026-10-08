@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 
 from .pipeline import run_scan
+from .remediation.executor import execute
 
 
 def main():
@@ -12,6 +13,15 @@ def main():
     scan = subparsers.add_parser("scan")
     scan.add_argument("--region", default="ap-southeast-1")
     scan.add_argument("--limit", type=int, default=20)
+
+    remediate = subparsers.add_parser("remediate")
+    remediate.add_argument("--plan", required=True)
+    remediate.add_argument("--approve", action="store_true")
+    remediate.add_argument(
+        "--execute",
+        action="store_true",
+        help="Perform AWS mutation. Default is dry-run.",
+    )
 
     args = parser.parse_args()
 
@@ -23,3 +33,13 @@ def main():
         print("Remediation plans:", result["remediation_plans"])
         for key, value in result["reports"].items():
             print(f"{key}: {value}")
+        return
+
+    if args.command == "remediate":
+        plan = json.loads(Path(args.plan).read_text(encoding="utf-8"))
+        result = execute(
+            plan,
+            approve=args.approve,
+            dry_run=not args.execute,
+        )
+        print(json.dumps(result, indent=2, ensure_ascii=False, default=str))
