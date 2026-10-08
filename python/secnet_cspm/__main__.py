@@ -5,7 +5,7 @@ from .scanner import scan
 from .planner import build_plan
 from .finding_store import save_json
 from .report import save_report
-from cspm_engine.remediation_executor import execute_plan
+from cspm_engine.remediation_executor import execute_plan, build_summary, save_execution_log
 from .ai_analyzer import run_ai_analysis
 from .verification import verify_remediation
 from .finding_store import load_json
@@ -40,7 +40,9 @@ def main():
 
     elif args.command == "remediate":
         results = execute_plan()
-        print(json.dumps(results, ensure_ascii=False, indent=2))
+        summary = build_summary(results)
+        path = save_execution_log(results, summary)
+        print(json.dumps({"summary": summary, "log": str(path), "results": results}, ensure_ascii=False, indent=2))
 
     elif args.command == "verify":
         report = load_json("tests/outputs/cspm-execution-log.json")
