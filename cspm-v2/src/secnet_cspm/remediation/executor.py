@@ -30,7 +30,7 @@ def execute(plan: dict[str, Any], *, approve: bool = False, dry_run: bool = True
     if action != "restrict_public_ssh":
         raise RemediationError(f"Unsupported remediation action: {action}")
 
-    policy = Path(__file__).resolve().parents[2] / "custodian" / "policies" / "ec2-public-ssh.yml"
+    policy = Path(__file__).resolve().parents[3] / "custodian" / "policies" / "ec2-public-ssh.yml"
     cmd = [
         os.getenv("CUSTODIAN_COMMAND", "custodian"),
         "run",
