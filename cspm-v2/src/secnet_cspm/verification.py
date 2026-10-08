@@ -12,6 +12,8 @@ def verify_public_ssh(region: str, control_id: str, output_dir: Path) -> dict:
         region,
         "--check",
         control_id,
+        "--status",
+        "PASS",
         "--output-formats",
         "json-ocsf",
         "csv",
