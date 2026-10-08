@@ -1,0 +1,6 @@
+aws_region="ap-southeast-1"
+project_name="SecNet-CSPM"
+environment="lab"
+allowed_ssh_cidr="10.50.0.0/16"
+enable_public_ssh_test=false
+enable_public_s3_test=false
