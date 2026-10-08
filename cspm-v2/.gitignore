@@ -1,0 +1,11 @@
+.venv/
+.env
+__pycache__/
+*.pyc
+.terraform/
+*.tfstate
+*.tfstate.*
+data/scans/*
+!data/scans/.gitkeep
+reports/*
+!reports/.gitkeep
