@@ -9,9 +9,37 @@ class RemediationError(RuntimeError):
     pass
 
 
+ALLOWED_CONTROL = (
+    "ec2_securitygroup_allow_ingress_from_internet_to_tcp_port_22"
+)
+ALLOWED_ACTION = "restrict_public_ssh"
+ALLOWED_RESOURCE_ID = "sg-0b18998e447203ad1"
+
+
 def execute(plan: dict[str, Any], *, approve: bool = False, dry_run: bool = True) -> dict[str, Any]:
     if plan.get("status") not in {"READY", "PENDING_APPROVAL"}:
         raise RemediationError("Remediation plan is not executable.")
+
+    if plan.get("action") != ALLOWED_ACTION:
+        raise RemediationError(
+            f"Unsupported remediation action: {plan.get('action')}"
+        )
+
+    if plan.get("control_id") != ALLOWED_CONTROL:
+        raise RemediationError("Unsupported or missing control_id.")
+
+    if plan.get("resource_id") != ALLOWED_RESOURCE_ID:
+        raise RemediationError("Unsupported or missing resource_id.")
+
+    for field in ("finding_fingerprint", "region"):
+        value = plan.get(field)
+        if not isinstance(value, str) or not value.strip():
+            raise RemediationError(f"Missing required plan field: {field}")
+
+    if plan.get("approval_required") is not True:
+        raise RemediationError(
+            "Remediation plan must require explicit approval."
+        )
 
     if plan.get("approval_required") and not approve:
         return {
@@ -36,6 +64,8 @@ def execute(plan: dict[str, Any], *, approve: bool = False, dry_run: bool = True
         "run",
         "-s",
         str(Path("data/custodian")),
+        "--region",
+        plan["region"],
         str(policy),
     ]
 

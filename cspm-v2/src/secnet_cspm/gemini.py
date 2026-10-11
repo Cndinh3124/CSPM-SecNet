@@ -1,8 +1,17 @@
+
 import json
 import os
+import random
+import time
+from pathlib import Path
 
+from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+load_dotenv(PROJECT_ROOT / ".env")
 
 
 SYSTEM_INSTRUCTION = """Bạn là Senior AWS Security Engineer hỗ trợ một hệ thống CSPM.
@@ -32,12 +41,64 @@ Phân tích phải bao gồm:
 """
 
 
-def analyze(finding):
+REQUIRED_FIELDS = {
+    "summary",
+    "root_cause",
+    "impact",
+    "recommended_remediation",
+    "remediation_plan",
+    "auto_remediation",
+    "verification_steps",
+    "confidence",
+    "assumptions",
+}
+
+VALID_REMEDIATION_MODES = {
+    "SAFE",
+    "REVIEW_REQUIRED",
+    "MANUAL",
+}
+
+RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+
+
+def _is_retryable_error(exc: Exception) -> bool:
+    """Determine whether a Gemini API error may be temporary."""
+    code = getattr(exc, "code", None)
+
+    if code in RETRYABLE_STATUS_CODES:
+        return True
+
+    error_text = str(exc).lower()
+
+    retryable_markers = (
+        "429",
+        "500 internal",
+        "502",
+        "503",
+        "504",
+        "resource_exhausted",
+        "unavailable",
+        "deadline exceeded",
+        "high demand",
+        "temporarily unavailable",
+    )
+
+    return any(marker in error_text for marker in retryable_markers)
+
+
+def analyze(finding: dict) -> dict:
+    """Analyze one CSPM finding with Gemini.
+
+    Gemini provides recommendations only. It does not authorize or execute
+    AWS remediation.
+    """
     key = os.getenv("GEMINI_API_KEY")
+
     if not key:
         raise RuntimeError("GEMINI_API_KEY is not configured")
 
-    model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    model = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
     client = genai.Client(api_key=key)
 
     prompt = f"""{SYSTEM_INSTRUCTION}
@@ -64,16 +125,74 @@ Schema JSON bắt buộc:
   "confidence": 0.0,
   "assumptions": ["string"]
 }}
+
+Chỉ trả về một JSON object hợp lệ. Không thêm Markdown hoặc nội dung bên ngoài JSON.
 """
 
-    response = client.models.generate_content(
-        model=model,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            temperature=0.1,
-            response_mime_type="application/json",
-        ),
-    )
-    result = json.loads(response.text)
+    response = None
+
+    # Retry tối đa 3 lần cho lỗi tạm thời.
+    for attempt in range(3):
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.1,
+                    response_mime_type="application/json",
+                ),
+            )
+            break
+
+        except Exception as exc:
+            if not _is_retryable_error(exc) or attempt == 2:
+                raise
+
+            # Chờ tăng dần, thêm jitter để giảm retry đồng thời.
+            delay = (2 ** attempt) + random.uniform(0, 1)
+            time.sleep(delay)
+
+    if response is None or not response.text:
+        raise RuntimeError("Gemini returned an empty response")
+
+    try:
+        result = json.loads(response.text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            "Gemini returned invalid JSON"
+        ) from exc
+
+    if not isinstance(result, dict):
+        raise ValueError("Gemini response must be a JSON object")
+
+    missing_fields = REQUIRED_FIELDS - result.keys()
+
+    if missing_fields:
+        missing = ", ".join(sorted(missing_fields))
+        raise ValueError(
+            f"Gemini response is missing required fields: {missing}"
+        )
+
+    if result["auto_remediation"] not in VALID_REMEDIATION_MODES:
+        raise ValueError("Invalid auto_remediation value")
+
+    if not isinstance(result["remediation_plan"], dict):
+        raise ValueError("remediation_plan must be a JSON object")
+
+    if not isinstance(result["verification_steps"], list):
+        raise ValueError("verification_steps must be a JSON array")
+
+    if not isinstance(result["assumptions"], list):
+        raise ValueError("assumptions must be a JSON array")
+
+    confidence = result["confidence"]
+
+    if (
+        isinstance(confidence, bool)
+        or not isinstance(confidence, (int, float))
+        or not 0 <= confidence <= 1
+    ):
+        raise ValueError("confidence must be a number between 0 and 1")
+
     result["model"] = model
     return result

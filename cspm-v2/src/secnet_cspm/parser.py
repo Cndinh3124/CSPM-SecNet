@@ -38,13 +38,14 @@ def normalize_ocsf(finding, scan_id, region):
     control_id = str(
         _get(finding.get("metadata") or {}, "event_code")
         or _get(analytic, "uid")
+        or _get(finding_info, "uid")
         or ""
     )
     resource_arn = str(_get(resource_metadata, "arn") or resource.get("uid"))
     resource_id = str(
         _get(resource_metadata, "id")
-        or resource.get("name")
         or resource.get("uid")
+        or resource.get("name")
         or ""
     )
     finding_region = str(
