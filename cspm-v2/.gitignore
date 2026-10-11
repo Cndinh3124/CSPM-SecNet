@@ -9,3 +9,14 @@ data/scans/*
 !data/scans/.gitkeep
 reports/*
 !reports/.gitkeep
+
+# Python generated files
+*.egg-info/
+.pytest_cache/
+
+# Runtime files
+logs/
+data/.scan-and-publish.lock
+
+# Local backup files
+*.bak*
