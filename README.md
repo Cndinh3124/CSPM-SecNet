@@ -58,3 +58,30 @@ SecNet CSPM
 CSPM Developer / Cloud Security  
 0962633364  
 dinhlabs.tech@gmail.com
+
+## Docker Compose demo (local)
+
+The Compose stack starts PostgreSQL, the FastAPI API, the worker, and the existing React dashboard. It does not provision or modify AWS infrastructure.
+
+1. Copy the example environment file and replace the local database password with a long random value:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Ensure AWS CLI credentials/profile are configured on the host. Compose mounts `${HOME}/.aws` read-only into the API and worker containers.
+3. Validate the Compose configuration before starting services:
+
+   ```bash
+   docker compose config --quiet
+   docker compose build
+   docker compose up -d
+   docker compose ps
+   ```
+
+4. Open the dashboard at `http://localhost:3000`, API health at `http://localhost:8000/health`, and API docs at `http://localhost:8000/docs`.
+
+Stop the stack with `docker compose down`. This keeps the named PostgreSQL volume. To remove demo database data too, use `docker compose down -v` only when you intentionally want to delete it.
+
+**Security note:** This is a local demo configuration, not production hardening. Do not expose ports 3000/8000 to the Internet. The mounted AWS credentials are read-only at the filesystem level, not permission-restricted at the AWS API level; use a dedicated least-privilege profile. The worker's remediation path must be reviewed separately before enabling AWS mutation.
+
