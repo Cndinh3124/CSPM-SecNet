@@ -5,8 +5,8 @@ environment  = "demo"
 # Keep this restricted for the baseline.
 allowed_ssh_cidr = "10.50.0.0/16"
 
-# Set to true only for the controlled Prowler public-SSH scenario.
-enable_public_ssh_test = true
+# Opt in to the public-SSH finding only for a controlled demo after reviewing the plan.
+enable_public_ssh_test = false
 
 # Reserved for a later S3 scenario.
 enable_public_s3_test = false
