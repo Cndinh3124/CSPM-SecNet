@@ -1,0 +1,45 @@
+{
+  "activity_name": "Security Group",
+  "finding_info": {
+    "uid": "ec2_securitygroup_allow_ingress_from_internet_to_tcp_port_22",
+    "title": "Security group does not allow ingress from internet to TCP port 22",
+    "desc": "Security group allows unrestricted SSH access from the internet."
+  },
+  "severity": "High",
+  "status": "FAIL",
+  "status_detail": "Security group allows ingress from 0.0.0.0/0 to TCP port 22.",
+  "cloud": {
+    "account": {
+      "uid": "392024306192"
+    },
+    "region": "ap-southeast-1"
+  },
+  "resources": [
+    {
+      "uid": "sg-06064219c4fe6e8a1",
+      "name": "test-security-group",
+      "type": "AwsEc2SecurityGroup",
+      "region": "ap-southeast-1",
+      "group": {
+        "name": "ec2"
+      },
+      "labels": [
+        {
+          "Project": "SecNet-CSPM"
+        },
+        {
+          "CSPMTest": "true"
+        },
+        {
+          "CSPMScope": "demo"
+        },
+        {
+          "CSPMTarget": "true"
+        },
+        {
+          "Environment": "demo"
+        }
+      ]
+    }
+  ]
+}

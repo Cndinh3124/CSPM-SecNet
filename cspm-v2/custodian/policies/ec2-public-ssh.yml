@@ -1,0 +1,18 @@
+policies:
+  - name: cspm-demo-public-ssh
+    resource: aws.security-group
+    description: "Remove public IPv4 SSH ingress only from explicitly tagged CSPM demo resources."
+    filters:
+      - "tag:CSPMTarget": "true"
+      - "tag:CSPMScope": "demo"
+      - "tag:CSPMTest": "true"
+      - type: value
+        key: GroupId
+        value: sg-0b18998e447203ad1
+      - type: ingress
+        Cidr: "0.0.0.0/0"
+        Ports:
+          - 22
+    actions:
+      - type: remove-permissions
+        ingress: matched
