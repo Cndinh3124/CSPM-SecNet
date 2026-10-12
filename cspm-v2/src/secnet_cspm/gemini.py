@@ -98,7 +98,7 @@ def analyze(finding: dict) -> dict:
     if not key:
         raise RuntimeError("GEMINI_API_KEY is not configured")
 
-    model = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+    model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     client = genai.Client(api_key=key)
 
     prompt = f"""{SYSTEM_INSTRUCTION}
