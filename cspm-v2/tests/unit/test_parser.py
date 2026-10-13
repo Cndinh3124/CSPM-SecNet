@@ -3,7 +3,6 @@ from pathlib import Path
 
 from secnet_cspm.parser import normalize_ocsf, parse_file
 
-
 FIXTURE = Path(__file__).parent / "fixtures" / "prowler" / "ec2_public_ssh.ocsf.json"
 
 

@@ -1,4 +1,5 @@
 import pytest
+
 from secnet_cspm.lifecycle import transition
 
 

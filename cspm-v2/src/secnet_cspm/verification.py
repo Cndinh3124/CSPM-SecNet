@@ -61,7 +61,7 @@ def verify_public_ssh(
     ]
 
     try:
-        result = subprocess.run(cmd, text=True, capture_output=True)
+        result = subprocess.run(cmd, text=True, capture_output=True, check=False)
     except OSError as exc:
         return {
             "status": "INCONCLUSIVE",

@@ -1,8 +1,7 @@
-from pathlib import Path
 
 import pytest
 
-from secnet_cspm.remediation.executor import execute, RemediationError
+from secnet_cspm.remediation.executor import RemediationError, execute
 
 
 def plan(**overrides):
@@ -65,7 +64,7 @@ def test_missing_region_is_rejected():
 
 
 def test_dry_run_does_not_call_custodian(monkeypatch):
-    import secnet_cspm.remediation.executor as executor
+    from secnet_cspm.remediation import executor
 
     def unexpected_call(*args, **kwargs):
         raise AssertionError("Custodian must not run during dry-run")

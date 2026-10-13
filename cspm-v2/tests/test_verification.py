@@ -4,13 +4,12 @@ from pathlib import Path
 
 from secnet_cspm.verification import verify_public_ssh
 
-
 CONTROL = "ec2_securitygroup_allow_ingress_from_internet_to_tcp_port_22"
 TARGET = "sg-0b18998e447203ad1"
 
 
 def fake_prowler(monkeypatch, status, *, returncode=0, include_target=True):
-    def run(cmd, text, capture_output):
+    def run(cmd, text=True, capture_output=True, check=False):
         output_dir = Path(cmd[cmd.index("--output-directory") + 1])
         output_dir.mkdir(parents=True, exist_ok=True)
         path = output_dir / "findings.csv"

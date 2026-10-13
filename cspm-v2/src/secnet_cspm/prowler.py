@@ -2,7 +2,6 @@ import os
 import subprocess
 from pathlib import Path
 
-
 # Prowler exit code 3 means:
 # The scan completed, but one or more findings failed.
 PROWLER_FINDINGS_EXIT_CODE = 3
@@ -55,6 +54,7 @@ def run(
         command,
         text=True,
         capture_output=True,
+        check=False,
     )
 
     stdout_path = out / "stdout.log"
