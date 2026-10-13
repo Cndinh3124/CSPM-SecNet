@@ -5,10 +5,10 @@ Gemini provides analysis and recommendations only.
 It does not call AWS APIs or execute remediation.
 """
 
+from importlib.resources import files
 import json
 import os
 import time
-from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
@@ -61,11 +61,10 @@ SYSTEM_INSTRUCTION = (
 )
 
 
-
 def _validate_result(result: Any) -> dict[str, Any]:
     """Validate and normalize JSON returned by Gemini."""
     if not isinstance(result, dict):
-        raise ValueError("Gemini response must be a JSON object.")
+        raise TypeError("Gemini response must be a JSON object.")
 
     missing = REQUIRED_FIELDS - result.keys()
     if missing:
@@ -76,7 +75,7 @@ def _validate_result(result: Any) -> dict[str, Any]:
 
     for field in TEXT_FIELDS:
         if not isinstance(result[field], str):
-            raise ValueError(f"{field} must be a string.")
+            raise TypeError(f"{field} must be a string.")
 
     mode = result["auto_remediation"]
 
@@ -86,14 +85,14 @@ def _validate_result(result: Any) -> dict[str, Any]:
     plan = result["remediation_plan"]
 
     if not isinstance(plan, dict):
-        raise ValueError("remediation_plan must be a JSON object.")
+        raise TypeError("remediation_plan must be a JSON object.")
 
     # Fill optional plan fields so downstream reporting has a stable schema.
     for field in PLAN_FIELDS:
         plan.setdefault(field, "")
 
         if not isinstance(plan[field], str):
-            raise ValueError(
+            raise TypeError(
                 f"remediation_plan.{field} must be a string."
             )
 
@@ -101,17 +100,17 @@ def _validate_result(result: Any) -> dict[str, Any]:
         value = result[field]
 
         if not isinstance(value, list):
-            raise ValueError(f"{field} must be a JSON array.")
+            raise TypeError(f"{field} must be a JSON array.")
 
         if not all(isinstance(item, str) for item in value):
-            raise ValueError(
+            raise TypeError(
                 f"Every item in {field} must be a string."
             )
 
     confidence_value = result["confidence"]
 
     if isinstance(confidence_value, bool):
-        raise ValueError(
+        raise TypeError(
             "confidence must be a number between 0 and 1."
         )
 
