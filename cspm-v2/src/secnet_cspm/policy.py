@@ -1,56 +1,122 @@
 
+"""Policy evaluation and controlled remediation planning.
+
+Policy determines whether a remediation review plan may be created.
+It does not execute AWS changes.
+
+Safety rules:
+- Only explicitly tagged demo/sandbox resources are eligible.
+- Production remediation is denied by default.
+- Every remediation plan requires explicit approval.
+- Unsupported controls are denied.
+- AI recommendations never override policy restrictions.
+"""
+
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True)
 class PolicyDecision:
+    """Immutable result of a remediation policy evaluation."""
+
     action: str
     allowed: bool
     approval_required: bool
     reason: str
 
 
-DEFAULT_RULES = {
+DEFAULT_RULES: dict[str, dict[str, Any]] = {
     "ec2_securitygroup_allow_ingress_from_internet_to_tcp_port_22": {
         "action": "restrict_public_ssh",
         "allowed_scopes": {"demo", "sandbox"},
         "approval_required": True,
         "production_allowed": False,
-    }
+    },
 }
 
 
-def _labels_to_dict(labels):
-    """Convert Prowler labels into a dictionary."""
+def _labels_to_dict(labels: Any) -> dict[str, str]:
+    """Normalize labels from dictionaries or lists of dictionaries/strings.
+
+    Supported examples:
+        {"CSPMScope": "demo"}
+
+        [
+            {"CSPMScope": "demo"},
+            {"CSPMTarget": "true"},
+        ]
+
+        ["CSPMScope:demo", "CSPMTarget:true"]
+
+    Invalid label entries are ignored.
+    """
     if isinstance(labels, dict):
-        return labels
+        items = labels.items()
+
+    elif isinstance(labels, list):
+        result: dict[str, str] = {}
+
+        for item in labels:
+            if isinstance(item, dict):
+                for key, value in item.items():
+                    if key is None or value is None:
+                        continue
+
+                    normalized_key = str(key).strip()
+                    normalized_value = str(value).strip()
+
+                    if normalized_key:
+                        result[normalized_key] = normalized_value
+
+            elif isinstance(item, str) and ":" in item:
+                key, value = item.split(":", 1)
+                normalized_key = key.strip()
+                normalized_value = value.strip()
+
+                if normalized_key:
+                    result[normalized_key] = normalized_value
+
+        return result
+
+    else:
+        return {}
 
     result = {}
 
-    if not isinstance(labels, list):
-        return result
-
-    for item in labels:
-        if not isinstance(item, str) or ":" not in item:
+    for key, value in items:
+        if key is None or value is None:
             continue
 
-        key, value = item.split(":", 1)
-        result[key.strip()] = value.strip()
+        normalized_key = str(key).strip()
+        normalized_value = str(value).strip()
+
+        if normalized_key:
+            result[normalized_key] = normalized_value
 
     return result
 
 
-def evaluate(finding, ai_analysis=None):
-    """
-    Decide whether a remediation review plan may be created.
+def evaluate(
+    finding: dict[str, Any],
+    ai_analysis: dict[str, Any] | None = None,
+) -> PolicyDecision:
+    """Evaluate whether a finding is eligible for a review plan.
 
-    AI provides recommendations only. It does not authorize AWS changes.
-    Every plan produced by this policy requires explicit approval.
+    This function never performs remediation.
     """
-    control_id = finding.get("control_id", "")
+    if not isinstance(finding, dict):
+        return PolicyDecision(
+            action="none",
+            allowed=False,
+            approval_required=True,
+            reason="Invalid finding input.",
+        )
+
+    control_id = str(finding.get("control_id") or "").strip()
     rule = DEFAULT_RULES.get(control_id)
 
-    if not rule:
+    if rule is None:
         return PolicyDecision(
             action="none",
             allowed=False,
@@ -66,7 +132,7 @@ def evaluate(finding, ai_analysis=None):
 
     if not target:
         return PolicyDecision(
-            action="none",
+            action=rule["action"],
             allowed=False,
             approval_required=True,
             reason="Resource is not explicitly tagged as a CSPM target.",
@@ -74,35 +140,51 @@ def evaluate(finding, ai_analysis=None):
 
     if scope not in rule["allowed_scopes"]:
         return PolicyDecision(
-            action="none",
+            action=rule["action"],
             allowed=False,
             approval_required=True,
             reason="Resource scope is not allowed by policy.",
         )
 
-    if (
-        environment == "production"
-        and not rule["production_allowed"]
-    ):
+    if environment == "production" and not rule["production_allowed"]:
         return PolicyDecision(
-            action="none",
+            action=rule["action"],
             allowed=False,
             approval_required=True,
             reason="Production remediation is not allowed by policy.",
         )
 
-    ai_mode = str(
-        (ai_analysis or {}).get("auto_remediation", "MANUAL")
-    ).upper()
+    # Fail closed when environment metadata is missing.
+    if not environment:
+        return PolicyDecision(
+            action=rule["action"],
+            allowed=False,
+            approval_required=True,
+            reason="Resource environment is missing.",
+        )
+
+    # This policy only allows demo/sandbox scopes. Explicitly reject
+    # production and any environment outside the supported test scopes.
+    if environment not in {"demo", "sandbox"}:
+        return PolicyDecision(
+            action=rule["action"],
+            allowed=False,
+            approval_required=True,
+            reason="Resource environment is not an allowed demo/sandbox environment.",
+        )
+
+    analysis = ai_analysis if isinstance(ai_analysis, dict) else {}
+    ai_mode = str(analysis.get("auto_remediation", "MANUAL")).strip().upper()
 
     if ai_mode not in {"SAFE", "REVIEW_REQUIRED", "MANUAL"}:
         return PolicyDecision(
-            action="none",
+            action=rule["action"],
             allowed=False,
             approval_required=True,
             reason="Unknown AI remediation classification.",
         )
 
+    # Even SAFE is only eligible for a review plan, never direct execution.
     return PolicyDecision(
         action=rule["action"],
         allowed=True,
@@ -115,17 +197,28 @@ def evaluate(finding, ai_analysis=None):
     )
 
 
-def build_plan(finding, ai_analysis, decision):
-    """Build a reviewable remediation plan from a policy decision."""
+def build_plan(
+    finding: dict[str, Any],
+    ai_analysis: dict[str, Any],
+    decision: PolicyDecision,
+) -> dict[str, Any]:
+    """Build a pending remediation review plan after policy approval."""
+    if not isinstance(decision, PolicyDecision):
+        raise ValueError("A valid policy decision is required.")
+
     if not decision.allowed:
-        raise ValueError(
-            "Cannot build a remediation plan for a denied policy decision."
-        )
+        raise ValueError("Cannot build a plan for a denied policy decision.")
 
     if not decision.approval_required:
         raise ValueError(
             "Remediation plans must require explicit approval."
         )
+
+    if not isinstance(finding, dict):
+        raise ValueError("Invalid finding input.")
+
+    if not isinstance(ai_analysis, dict):
+        raise ValueError("Invalid AI analysis input.")
 
     return {
         "finding_fingerprint": finding.get("fingerprint"),
@@ -137,19 +230,7 @@ def build_plan(finding, ai_analysis, decision):
         "approval_required": True,
         "status": "PENDING_APPROVAL",
         "reason": decision.reason,
-        "ai_recommendation": (
-            ai_analysis.get("recommended_remediation")
-            if isinstance(ai_analysis, dict)
-            else None
-        ),
-        "remediation_plan": (
-            ai_analysis.get("remediation_plan", {})
-            if isinstance(ai_analysis, dict)
-            else {}
-        ),
-        "confidence": (
-            ai_analysis.get("confidence")
-            if isinstance(ai_analysis, dict)
-            else None
-        ),
+        "ai_recommendation": ai_analysis.get("recommended_remediation"),
+        "remediation_plan": ai_analysis.get("remediation_plan", {}),
+        "confidence": ai_analysis.get("confidence"),
     }

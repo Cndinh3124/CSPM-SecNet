@@ -1,0 +1,19 @@
+
+#!/bin/sh
+set -eu
+
+PROWLER_ROOT="${PROWLER_ROOT:-$HOME/Projects/prowler}"
+PROWLER_PYTHON="${PROWLER_PYTHON:-$PROWLER_ROOT/.venv/bin/python}"
+PROWLER_CLI="$PROWLER_ROOT/prowler-cli.py"
+
+if [ ! -x "$PROWLER_PYTHON" ]; then
+    echo "ERROR: Prowler Python executable not found: $PROWLER_PYTHON" >&2
+    exit 1
+fi
+
+if [ ! -f "$PROWLER_CLI" ]; then
+    echo "ERROR: Prowler CLI not found: $PROWLER_CLI" >&2
+    exit 1
+fi
+
+exec "$PROWLER_PYTHON" "$PROWLER_CLI" "$@"

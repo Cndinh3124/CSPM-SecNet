@@ -103,3 +103,6 @@ prowler-output/
 
 **/*.tfvars
 !**/*.tfvars.example
+
+# Runtime scan data and generated reports
+/data/

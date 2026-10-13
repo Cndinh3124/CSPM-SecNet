@@ -1,10 +1,7 @@
 
 import pytest
 
-from secnet_cspm.policy import (
-    build_plan,
-    evaluate,
-)
+from secnet_cspm.policy import build_plan, evaluate
 
 
 def finding(**overrides):
@@ -14,8 +11,7 @@ def finding(**overrides):
         ),
         "resource_id": "sg-123",
         "resource_arn": (
-            "arn:aws:ec2:ap-southeast-1:123:"
-            "security-group/sg-123"
+            "arn:aws:ec2:ap-southeast-1:123:security-group/sg-123"
         ),
         "region": "ap-southeast-1",
         "fingerprint": "abc",
@@ -30,10 +26,7 @@ def finding(**overrides):
 
 
 def test_safe_ai_creates_plan_requiring_approval():
-    decision = evaluate(
-        finding(),
-        {"auto_remediation": "SAFE"},
-    )
+    decision = evaluate(finding(), {"auto_remediation": "SAFE"})
 
     assert decision.allowed is True
     assert decision.approval_required is True
@@ -41,20 +34,14 @@ def test_safe_ai_creates_plan_requiring_approval():
 
 
 def test_review_required_ai_creates_plan_requiring_approval():
-    decision = evaluate(
-        finding(),
-        {"auto_remediation": "REVIEW_REQUIRED"},
-    )
+    decision = evaluate(finding(), {"auto_remediation": "REVIEW_REQUIRED"})
 
     assert decision.allowed is True
     assert decision.approval_required is True
 
 
 def test_manual_ai_can_create_review_plan():
-    decision = evaluate(
-        finding(),
-        {"auto_remediation": "MANUAL"},
-    )
+    decision = evaluate(finding(), {"auto_remediation": "MANUAL"})
 
     assert decision.allowed is True
     assert decision.approval_required is True
@@ -69,10 +56,7 @@ def test_missing_ai_analysis_defaults_to_manual():
 
 
 def test_unknown_ai_classification_is_blocked():
-    decision = evaluate(
-        finding(),
-        {"auto_remediation": "UNKNOWN"},
-    )
+    decision = evaluate(finding(), {"auto_remediation": "UNKNOWN"})
 
     assert decision.allowed is False
 
@@ -125,21 +109,16 @@ def test_unsupported_control_is_blocked():
 
 
 def test_build_plan_requires_approved_policy_decision():
-    decision = evaluate(
-        finding(),
-        {"auto_remediation": "MANUAL"},
-    )
+    value = finding()
+    analysis = {
+        "auto_remediation": "MANUAL",
+        "recommended_remediation": "Review SSH ingress.",
+        "remediation_plan": {},
+        "confidence": 0.95,
+    }
 
-    plan = build_plan(
-        finding(),
-        {
-            "auto_remediation": "MANUAL",
-            "recommended_remediation": "Review SSH ingress.",
-            "remediation_plan": {},
-            "confidence": 0.95,
-        },
-        decision,
-    )
+    decision = evaluate(value, analysis)
+    plan = build_plan(value, analysis, decision)
 
     assert plan["status"] == "PENDING_APPROVAL"
     assert plan["approval_required"] is True
@@ -147,10 +126,26 @@ def test_build_plan_requires_approved_policy_decision():
 
 
 def test_build_plan_rejects_denied_decision():
-    decision = evaluate(
-        finding(labels=["Environment:demo"]),
-        {"auto_remediation": "SAFE"},
-    )
+    value = finding(labels=["Environment:demo"])
+    decision = evaluate(value, {"auto_remediation": "SAFE"})
 
     with pytest.raises(ValueError):
-        build_plan(finding(), {}, decision)
+        build_plan(value, {}, decision)
+
+
+def test_ocsf_dictionary_labels_are_supported():
+    value = finding(
+        labels=[
+            {"Project": "SecNet-CSPM"},
+            {"CSPMTest": "true"},
+            {"CSPMScope": "demo"},
+            {"CSPMTarget": "true"},
+            {"Environment": "demo"},
+        ]
+    )
+
+    decision = evaluate(value, {"auto_remediation": "SAFE"})
+
+    assert decision.allowed is True
+    assert decision.action == "restrict_public_ssh"
+    assert decision.approval_required is True
