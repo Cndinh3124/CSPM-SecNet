@@ -1,19 +1,11 @@
-
-"""CSPM scan pipeline.
-
-Flow:
-Prowler -> Parser -> Risk -> Gemini -> Policy -> Reports
-
-This module creates remediation review plans only.
-It does not execute AWS remediation.
-"""
+from typing import Any
 
 from . import gemini, parser, prowler, reporting, storage
-from .policy import build_plan, evaluate
+from .policy import build_remediation_plan, evaluate
 from .risk import priority
 
 
-def run_scan(region, limit=20, check=None):
+def run_scan(region: str, limit: int = 20, check: str | None = None):
     """Run a CSPM scan and generate findings, AI analysis and reports.
 
     Args:
@@ -61,26 +53,37 @@ def run_scan(region, limit=20, check=None):
     )
 
     # 4. Analyze a bounded number of findings.
-    analyzed = []
-    plans = []
+    analyzed: list[dict[str, Any]] = []
+    plans: list[dict[str, Any]] = []
 
     selected_findings = normalized[:limit]
 
     for original_finding in selected_findings:
-        # Work on a copy so the normalized finding data remains unchanged.
+        # Work on a copy so normalized findings remain unchanged.
         finding = dict(original_finding)
 
+        # 4a. AI analysis is an advisory step.
         try:
             analysis = gemini.analyze(finding)
 
             if not isinstance(analysis, dict):
-                raise ValueError(
+                raise TypeError(
                     "Gemini analysis must return a dictionary."
                 )
 
-            finding.update(analysis)
-            finding["ai_status"] = "OK"
+        except Exception as exc:  # noqa: BLE001
+            # Intentional exception boundary around the external AI call:
+            # preserve the finding but do not create a remediation plan.
+            finding["ai_status"] = "ERROR"
+            finding["ai_error"] = type(exc).__name__
+            analyzed.append(finding)
+            continue
 
+        finding.update(analysis)
+        finding["ai_status"] = "OK"
+
+        # 4b. Policy evaluation and plan creation are separate from AI.
+        try:
             decision = evaluate(
                 finding,
                 analysis,
@@ -94,19 +97,17 @@ def run_scan(region, limit=20, check=None):
             }
 
             if decision.allowed:
-                plan = build_plan(
+                plan = build_remediation_plan(
+                    decision,
                     finding,
                     analysis,
-                    decision,
                 )
                 plans.append(plan)
 
-        except Exception as exc:
-            # Keep the scan findings even if AI or policy processing fails.
-            finding["ai_status"] = "ERROR"
-            finding["ai_error"] = (
-                f"{type(exc).__name__}: {exc}"
-            )
+        except (TypeError, ValueError) as exc:
+            # Invalid policy input or plan data must never produce a plan.
+            finding["policy_status"] = "ERROR"
+            finding["policy_error"] = type(exc).__name__
 
         analyzed.append(finding)
 
@@ -139,7 +140,7 @@ def run_scan(region, limit=20, check=None):
         analyzed,
     )
 
-    # 7. Calculate accurate AI statistics.
+    # 7. Calculate AI statistics.
     ai_successful = sum(
         finding.get("ai_status") == "OK"
         for finding in analyzed

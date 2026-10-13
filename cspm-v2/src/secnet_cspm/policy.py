@@ -1,17 +1,3 @@
-
-"""Policy evaluation and controlled remediation planning.
-
-Policy determines whether a remediation review plan may be created.
-It does not execute AWS changes.
-
-Safety rules:
-- Only explicitly tagged demo/sandbox resources are eligible.
-- Production remediation is denied by default.
-- Every remediation plan requires explicit approval.
-- Unsupported controls are denied.
-- AI recommendations never override policy restrictions.
-"""
-
 from dataclasses import dataclass
 from typing import Any
 
@@ -49,11 +35,11 @@ def _labels_to_dict(labels: Any) -> dict[str, str]:
 
         ["CSPMScope:demo", "CSPMTarget:true"]
 
+    Label keys are normalized case-insensitively.
     Invalid label entries are ignored.
     """
     if isinstance(labels, dict):
         items = labels.items()
-
     elif isinstance(labels, list):
         result: dict[str, str] = {}
 
@@ -63,7 +49,7 @@ def _labels_to_dict(labels: Any) -> dict[str, str]:
                     if key is None or value is None:
                         continue
 
-                    normalized_key = str(key).strip()
+                    normalized_key = str(key).strip().lower()
                     normalized_value = str(value).strip()
 
                     if normalized_key:
@@ -71,24 +57,23 @@ def _labels_to_dict(labels: Any) -> dict[str, str]:
 
             elif isinstance(item, str) and ":" in item:
                 key, value = item.split(":", 1)
-                normalized_key = key.strip()
+                normalized_key = key.strip().lower()
                 normalized_value = value.strip()
 
                 if normalized_key:
                     result[normalized_key] = normalized_value
 
         return result
-
     else:
         return {}
 
-    result = {}
+    result: dict[str, str] = {}
 
     for key, value in items:
         if key is None or value is None:
             continue
 
-        normalized_key = str(key).strip()
+        normalized_key = str(key).strip().lower()
         normalized_value = str(value).strip()
 
         if normalized_key:
@@ -126,9 +111,9 @@ def evaluate(
 
     labels = _labels_to_dict(finding.get("labels", []))
 
-    scope = labels.get("CSPMScope", "").lower()
-    target = labels.get("CSPMTarget", "").lower() == "true"
-    environment = labels.get("Environment", "").lower()
+    scope = labels.get("cspmscope", "").lower()
+    target = labels.get("cspmtarget", "").lower() == "true"
+    environment = labels.get("environment", "").lower()
 
     if not target:
         return PolicyDecision(
@@ -163,18 +148,23 @@ def evaluate(
             reason="Resource environment is missing.",
         )
 
-    # This policy only allows demo/sandbox scopes. Explicitly reject
-    # production and any environment outside the supported test scopes.
     if environment not in {"demo", "sandbox"}:
         return PolicyDecision(
             action=rule["action"],
             allowed=False,
             approval_required=True,
-            reason="Resource environment is not an allowed demo/sandbox environment.",
+            reason=(
+                "Resource environment is not an allowed "
+                "demo/sandbox environment."
+            ),
         )
 
     analysis = ai_analysis if isinstance(ai_analysis, dict) else {}
-    ai_mode = str(analysis.get("auto_remediation", "MANUAL")).strip().upper()
+    ai_mode = (
+        str(analysis.get("auto_remediation", "MANUAL"))
+        .strip()
+        .upper()
+    )
 
     if ai_mode not in {"SAFE", "REVIEW_REQUIRED", "MANUAL"}:
         return PolicyDecision(
@@ -184,7 +174,7 @@ def evaluate(
             reason="Unknown AI remediation classification.",
         )
 
-    # Even SAFE is only eligible for a review plan, never direct execution.
+    # Even SAFE only permits creation of a review plan.
     return PolicyDecision(
         action=rule["action"],
         allowed=True,
@@ -197,40 +187,72 @@ def evaluate(
     )
 
 
-def build_plan(
+def build_remediation_plan(
+    decision: PolicyDecision,
     finding: dict[str, Any],
     ai_analysis: dict[str, Any],
-    decision: PolicyDecision,
 ) -> dict[str, Any]:
     """Build a pending remediation review plan after policy approval."""
     if not isinstance(decision, PolicyDecision):
-        raise ValueError("A valid policy decision is required.")
+        raise TypeError("A valid policy decision is required.")
 
     if not decision.allowed:
         raise ValueError("Cannot build a plan for a denied policy decision.")
 
     if not decision.approval_required:
-        raise ValueError(
-            "Remediation plans must require explicit approval."
-        )
+        raise ValueError("Remediation plans must require explicit approval.")
 
     if not isinstance(finding, dict):
-        raise ValueError("Invalid finding input.")
+        raise TypeError("Invalid finding input.")
 
     if not isinstance(ai_analysis, dict):
-        raise ValueError("Invalid AI analysis input.")
+        raise TypeError("Invalid AI analysis input.")
+
+    fingerprint = finding.get("fingerprint")
+    control_id = finding.get("control_id")
+    resource_id = finding.get("resource_id")
+    region = finding.get("region")
+
+    # Do not create incomplete plans that cannot be safely reviewed.
+    required_fields = {
+        "fingerprint": fingerprint,
+        "control_id": control_id,
+        "resource_id": resource_id,
+        "region": region,
+    }
+
+    for field, value in required_fields.items():
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(
+                f"Finding is missing required field: {field}"
+            )
 
     return {
-        "finding_fingerprint": finding.get("fingerprint"),
-        "control_id": finding.get("control_id"),
-        "resource_id": finding.get("resource_id"),
+        "finding_fingerprint": fingerprint,
+        "control_id": control_id,
+        "resource_id": resource_id,
         "resource_arn": finding.get("resource_arn"),
-        "region": finding.get("region"),
+        "region": region,
         "action": decision.action,
         "approval_required": True,
         "status": "PENDING_APPROVAL",
         "reason": decision.reason,
-        "ai_recommendation": ai_analysis.get("recommended_remediation"),
+        "ai_recommendation": ai_analysis.get(
+            "recommended_remediation"
+        ),
         "remediation_plan": ai_analysis.get("remediation_plan", {}),
         "confidence": ai_analysis.get("confidence"),
     }
+
+
+def build_plan(
+    finding: dict[str, Any],
+    ai_analysis: dict[str, Any],
+    decision: PolicyDecision,
+) -> dict[str, Any]:
+    """Backward-compatible wrapper for callers using the legacy API."""
+    return build_remediation_plan(
+        decision,
+        finding,
+        ai_analysis,
+    )

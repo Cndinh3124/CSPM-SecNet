@@ -5,17 +5,16 @@ Gemini provides analysis and recommendations only.
 It does not call AWS APIs or execute remediation.
 """
 
-from importlib.resources import files
 import json
 import os
 import time
+from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
-
 
 # .../cspm-v2/src/secnet_cspm/gemini.py -> .../cspm-v2
 PROJECT_ROOT = Path(__file__).resolve().parents[2]

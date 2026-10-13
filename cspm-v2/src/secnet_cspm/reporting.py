@@ -1,5 +1,8 @@
-import csv,html
+import csv
+import html
+
 from openpyxl import Workbook
+
 FIELDS=["scan_id","control_id","status","severity","priority","title","resource_id","region","service","summary","root_cause","recommended_remediation","auto_remediation","confidence","verification_steps"]
 def _value(x,k): return " | ".join(x.get(k,[])) if k=="verification_steps" else x.get(k,"")
 def write_csv(path,items):

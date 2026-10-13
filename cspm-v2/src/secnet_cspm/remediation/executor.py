@@ -15,8 +15,12 @@ ALLOWED_CONTROL = (
 ALLOWED_ACTION = "restrict_public_ssh"
 ALLOWED_RESOURCE_ID = "sg-0b18998e447203ad1"
 
-
-def execute(plan: dict[str, Any], *, approve: bool = False, dry_run: bool = True) -> dict[str, Any]:
+def execute(
+    plan: dict[str, Any],
+    *,
+    approve: bool = False,
+    dry_run: bool = True,
+) -> dict[str, Any]:
     if plan.get("status") not in {"READY", "PENDING_APPROVAL"}:
         raise RemediationError("Remediation plan is not executable.")
 
@@ -41,24 +45,25 @@ def execute(plan: dict[str, Any], *, approve: bool = False, dry_run: bool = True
             "Remediation plan must require explicit approval."
         )
 
-    if plan.get("approval_required") and not approve:
+    if not approve:
         return {
             "status": "BLOCKED",
             "reason": "Explicit approval is required.",
             "dry_run": dry_run,
         }
 
-    if not dry_run:
-        if os.getenv("CSPM_ALLOW_AWS_MUTATION", "false").lower() != "true":
-            raise RemediationError(
-                "AWS mutation is disabled. Set CSPM_ALLOW_AWS_MUTATION=true only in the controlled demo."
-            )
+    action = plan["action"]
 
-    action = plan.get("action")
-    if action != "restrict_public_ssh":
+    if action != ALLOWED_ACTION:
         raise RemediationError(f"Unsupported remediation action: {action}")
 
-    policy = Path(__file__).resolve().parents[3] / "custodian" / "policies" / "ec2-public-ssh.yml"
+    policy = (
+        Path(__file__).resolve().parents[3]
+        / "custodian"
+        / "policies"
+        / "ec2-public-ssh.yml"
+    )
+
     cmd = [
         os.getenv("CUSTODIAN_COMMAND", "custodian"),
         "run",
@@ -76,7 +81,19 @@ def execute(plan: dict[str, Any], *, approve: bool = False, dry_run: bool = True
             "plan": plan,
         }
 
-    result = subprocess.run(cmd, text=True, capture_output=True)
+    if os.getenv("CSPM_ALLOW_AWS_MUTATION", "false").lower() != "true":
+        raise RemediationError(
+            "AWS mutation is disabled. "
+            "Set CSPM_ALLOW_AWS_MUTATION=true only in the controlled demo."
+        )
+
+    result = subprocess.run(
+        cmd,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
     output = {
         "status": "EXECUTED" if result.returncode == 0 else "FAILED",
         "returncode": result.returncode,
@@ -85,6 +102,8 @@ def execute(plan: dict[str, Any], *, approve: bool = False, dry_run: bool = True
         "command": cmd,
         "plan": plan,
     }
+
     if result.returncode != 0:
         raise RemediationError(json.dumps(output, ensure_ascii=False))
+
     return output
