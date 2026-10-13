@@ -19,5 +19,5 @@ variable "allowed_ssh_cidr" {
 variable "enable_public_ssh_test" {
   type        = bool
   description = "Intentionally allow SSH from the Internet to create a real Prowler finding. No EC2 is attached."
-  default     = true
+  default     = false
 }
