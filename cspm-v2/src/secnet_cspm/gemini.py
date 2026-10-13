@@ -8,6 +8,7 @@ It does not call AWS APIs or execute remediation.
 import json
 import os
 import time
+from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
@@ -53,39 +54,12 @@ PLAN_FIELDS = (
     "rollback",
 )
 
-SYSTEM_INSTRUCTION = """
-Bạn là Senior AWS Security Engineer hỗ trợ một hệ thống CSPM.
+SYSTEM_INSTRUCTION = (
+    files("secnet_cspm")
+    .joinpath("prompts/cloud_security_analyst.txt")
+    .read_text(encoding="utf-8")
+)
 
-Phân tích security finding và trả kết quả bằng TIẾNG VIỆT.
-
-QUY TẮC:
-1. Chỉ sử dụng dữ liệu trong finding. Không tự tạo AWS state hoặc bằng chứng.
-2. Phân biệt dữ kiện đã xác nhận, suy luận và thông tin chưa biết.
-3. Không gọi AWS API và không thực hiện thay đổi hạ tầng.
-4. Recommendation chỉ là tư vấn, không phải authorization.
-5. Không tự quyết định production scope.
-6. Nếu thiếu dữ liệu để xác định remediation an toàn, chọn MANUAL
-   hoặc REVIEW_REQUIRED.
-7. Giữ nguyên enum tiếng Anh: SAFE, REVIEW_REQUIRED, MANUAL.
-8. Trả về JSON hợp lệ, không Markdown.
-9. Không khẳng định resource hoặc cấu hình hiện tồn tại hay không tồn tại
-   nếu finding không cung cấp bằng chứng.
-10. Confidence phản ánh mức độ hỗ trợ của dữ liệu đầu vào,
-    không phải xác suất finding là đúng. Không mặc định confidence = 1.0.
-11. Finding FAIL không tự nó chứng minh đã xảy ra security incident.
-12. Nêu dữ liệu còn thiếu trong assumptions và điều chỉnh confidence phù hợp.
-
-CÁC TRƯỜNG PHẢI CÓ:
-- summary: lỗi và evidence chính.
-- root_cause: nguyên nhân kỹ thuật, phân biệt sự thật và giả thuyết.
-- impact: tác động bảo mật và vận hành.
-- recommended_remediation: cách khắc phục ưu tiên.
-- remediation_plan: target, action, expected_change, risk, rollback.
-- auto_remediation: SAFE | REVIEW_REQUIRED | MANUAL.
-- verification_steps: cách xác minh sau remediation.
-- confidence: số từ 0 đến 1.
-- assumptions: giả định hoặc thông tin còn thiếu.
-"""
 
 
 def _validate_result(result: Any) -> dict[str, Any]:
