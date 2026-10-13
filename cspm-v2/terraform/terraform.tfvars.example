@@ -1,18 +1,9 @@
-aws_region   = "ap-southeast-1"
+aws_region  = "ap-southeast-1"
 project_name = "SecNet-CSPM"
-environment  = "demo"
 
-# Keep this restricted for the baseline.
+# true creates an intentional public SSH finding for Prowler.
+# No EC2 instance is attached to this Security Group.
+enable_public_ssh_test = true
+
+# Used only when enable_public_ssh_test = false.
 allowed_ssh_cidr = "10.50.0.0/16"
-
-# Opt in to the public-SSH finding only for a controlled demo after reviewing the plan.
-enable_public_ssh_test = false
-
-# Reserved for a later S3 scenario.
-enable_public_s3_test = false
-
-instance_type = "t3.micro"
-
-project_tags = {
-  Owner = "CSPM-Demo"
-}
