@@ -5,6 +5,7 @@ Gemini provides analysis and recommendations only.
 It does not call AWS APIs or execute remediation.
 """
 
+from importlib.resources import files
 import json
 import os
 import time
@@ -53,45 +54,17 @@ PLAN_FIELDS = (
     "rollback",
 )
 
-SYSTEM_INSTRUCTION = """
-Bạn là Senior AWS Security Engineer hỗ trợ một hệ thống CSPM.
-
-Phân tích security finding và trả kết quả bằng TIẾNG VIỆT.
-
-QUY TẮC:
-1. Chỉ sử dụng dữ liệu trong finding. Không tự tạo AWS state hoặc bằng chứng.
-2. Phân biệt dữ kiện đã xác nhận, suy luận và thông tin chưa biết.
-3. Không gọi AWS API và không thực hiện thay đổi hạ tầng.
-4. Recommendation chỉ là tư vấn, không phải authorization.
-5. Không tự quyết định production scope.
-6. Nếu thiếu dữ liệu để xác định remediation an toàn, chọn MANUAL
-   hoặc REVIEW_REQUIRED.
-7. Giữ nguyên enum tiếng Anh: SAFE, REVIEW_REQUIRED, MANUAL.
-8. Trả về JSON hợp lệ, không Markdown.
-9. Không khẳng định resource hoặc cấu hình hiện tồn tại hay không tồn tại
-   nếu finding không cung cấp bằng chứng.
-10. Confidence phản ánh mức độ hỗ trợ của dữ liệu đầu vào,
-    không phải xác suất finding là đúng. Không mặc định confidence = 1.0.
-11. Finding FAIL không tự nó chứng minh đã xảy ra security incident.
-12. Nêu dữ liệu còn thiếu trong assumptions và điều chỉnh confidence phù hợp.
-
-CÁC TRƯỜNG PHẢI CÓ:
-- summary: lỗi và evidence chính.
-- root_cause: nguyên nhân kỹ thuật, phân biệt sự thật và giả thuyết.
-- impact: tác động bảo mật và vận hành.
-- recommended_remediation: cách khắc phục ưu tiên.
-- remediation_plan: target, action, expected_change, risk, rollback.
-- auto_remediation: SAFE | REVIEW_REQUIRED | MANUAL.
-- verification_steps: cách xác minh sau remediation.
-- confidence: số từ 0 đến 1.
-- assumptions: giả định hoặc thông tin còn thiếu.
-"""
+SYSTEM_INSTRUCTION = (
+    files("secnet_cspm")
+    .joinpath("prompts/cloud_security_analyst.txt")
+    .read_text(encoding="utf-8")
+)
 
 
 def _validate_result(result: Any) -> dict[str, Any]:
     """Validate and normalize JSON returned by Gemini."""
     if not isinstance(result, dict):
-        raise ValueError("Gemini response must be a JSON object.")
+        raise TypeError("Gemini response must be a JSON object.")
 
     missing = REQUIRED_FIELDS - result.keys()
     if missing:
@@ -102,7 +75,7 @@ def _validate_result(result: Any) -> dict[str, Any]:
 
     for field in TEXT_FIELDS:
         if not isinstance(result[field], str):
-            raise ValueError(f"{field} must be a string.")
+            raise TypeError(f"{field} must be a string.")
 
     mode = result["auto_remediation"]
 
@@ -112,14 +85,14 @@ def _validate_result(result: Any) -> dict[str, Any]:
     plan = result["remediation_plan"]
 
     if not isinstance(plan, dict):
-        raise ValueError("remediation_plan must be a JSON object.")
+        raise TypeError("remediation_plan must be a JSON object.")
 
     # Fill optional plan fields so downstream reporting has a stable schema.
     for field in PLAN_FIELDS:
         plan.setdefault(field, "")
 
         if not isinstance(plan[field], str):
-            raise ValueError(
+            raise TypeError(
                 f"remediation_plan.{field} must be a string."
             )
 
@@ -127,17 +100,17 @@ def _validate_result(result: Any) -> dict[str, Any]:
         value = result[field]
 
         if not isinstance(value, list):
-            raise ValueError(f"{field} must be a JSON array.")
+            raise TypeError(f"{field} must be a JSON array.")
 
         if not all(isinstance(item, str) for item in value):
-            raise ValueError(
+            raise TypeError(
                 f"Every item in {field} must be a string."
             )
 
     confidence_value = result["confidence"]
 
     if isinstance(confidence_value, bool):
-        raise ValueError(
+        raise TypeError(
             "confidence must be a number between 0 and 1."
         )
 
