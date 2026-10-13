@@ -1,6 +1,6 @@
 from typing import Any
 
-from . import gemini, parser, prowler, reporting, storage
+from . import dashboard, gemini, parser, prowler, reporting, storage
 from .policy import build_remediation_plan, evaluate
 from .risk import priority
 
@@ -16,6 +16,7 @@ def run_scan(region: str, limit: int = 20, check: str | None = None):
     Returns:
         Dictionary containing scan metadata and report paths.
     """
+
     if not isinstance(region, str) or not region.strip():
         raise ValueError("region must be a non-empty string.")
 
@@ -32,6 +33,14 @@ def run_scan(region: str, limit: int = 20, check: str | None = None):
         out,
         check=check,
     )
+    try:
+        dashboard_result = dashboard.sync_scan_csv(out)
+    except Exception as exc:
+        dashboard_result = {
+            "status": "ERROR",
+            "reason": type(exc).__name__,
+            "files_copied": 0,
+        }
 
     # 2. Parse findings.
     findings = parser.parse_directory(
@@ -153,10 +162,12 @@ def run_scan(region: str, limit: int = 20, check: str | None = None):
 
     ai_skipped = len(normalized) - len(analyzed)
 
+
     result = {
         "scan_id": sid,
         "region": region,
         "check": check,
+        "dashboard": dashboard_result,
         "total_failed_findings": len(normalized),
         "ai_attempted": len(analyzed),
         "ai_analyzed": ai_successful,
@@ -171,6 +182,7 @@ def run_scan(region: str, limit: int = 20, check: str | None = None):
             "remediation": str(root / "remediation/plans.json"),
         },
     }
+
 
     storage.write_json(
         root / "metadata.json",
