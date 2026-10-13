@@ -13,7 +13,6 @@ variable "project_name" {
 variable "allowed_ssh_cidr" {
   type        = string
   description = "Trusted IPv4 CIDR used when the intentional public SSH finding is disabled."
-  type        = string
   default     = "10.50.0.0/16"
 }
 
