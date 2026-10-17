@@ -119,12 +119,11 @@ def _parse_csv(path):
         handle.seek(0)
         try:
             dialect = csv.Sniffer().sniff(sample, delimiters=",;\\t")
+            delimiter = dialect.delimiter
         except csv.Error:
             first_line = sample.splitlines()[0] if sample else ""
             delimiter = ";" if first_line.count(";") > first_line.count(",") else ","
-            dialect = csv.excel
-            dialect.delimiter = delimiter
-        return list(csv.DictReader(handle, dialect=dialect))
+        return list(csv.DictReader(handle, delimiter=delimiter))
 
 
 def _normalize_csv_finding(item, scan_id, region):
