@@ -210,19 +210,31 @@ def parse_file(path, scan_id, region):
 
 
 def _merge_findings(existing, incoming):
-    """Merge CSV/OCSF representations while preferring populated values."""
+    """Merge CSV/OCSF representations, preferring OCSF fields when available."""
     merged = dict(existing)
+    existing_raw = merged.get("raw")
+    incoming_raw = incoming.get("raw")
+    existing_is_ocsf = (
+        isinstance(existing_raw, dict)
+        and bool(existing_raw.get("finding_info"))
+        and bool(existing_raw.get("resources"))
+    )
+    incoming_is_ocsf = (
+        isinstance(incoming_raw, dict)
+        and bool(incoming_raw.get("finding_info"))
+        and bool(incoming_raw.get("resources"))
+    )
+    prefer_incoming = incoming_is_ocsf and not existing_is_ocsf
+
     for key, value in incoming.items():
         if key == "raw":
-            # Keep the richer OCSF payload if it exists; otherwise retain incoming raw data.
-            if isinstance(value, dict) and value.get("finding_info") and value.get("resources"):
-                merged[key] = value
-            elif not merged.get(key):
+            if incoming_is_ocsf or not merged.get(key):
                 merged[key] = value
             continue
-        if value not in ("", None, [], {}):
-            if merged.get(key) in ("", None, [], {}):
-                merged[key] = value
+        if value in ("", None, [], {}):
+            continue
+        if prefer_incoming or merged.get(key) in ("", None, [], {}):
+            merged[key] = value
     return merged
 
 
