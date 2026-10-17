@@ -227,11 +227,13 @@ def _merge_findings(existing, incoming):
 
 
 def parse_directory(directory, scan_id, region):
-    """Parse only primary, top-level Prowler reports and deduplicate cross-format rows."""
+    """Parse primary Prowler reports and deduplicate CSV/OCSF representations."""
     root = Path(directory)
-    findings_by_fingerprint = {}
+    findings_by_key = {}
+    key_by_fingerprint = {}
+    key_by_uid = {}
 
-    # Compliance exports live in subdirectories and intentionally are not re-ingested:
+    # Compliance exports live in subdirectories and are not re-ingested because
     # they represent the same scan through a different compliance lens.
     for path in sorted(root.iterdir() if root.exists() else []):
         if not path.is_file() or path.suffix.lower() not in {".json", ".csv"}:
@@ -242,19 +244,27 @@ def parse_directory(directory, scan_id, region):
             continue
 
         for finding in findings:
-            key = finding.get("fingerprint") or finding.get("finding_uid")
-            if not key:
-                key = _fingerprint(
-                    finding.get("account_id"),
-                    finding.get("region"),
-                    finding.get("control_id"),
-                    finding.get("resource_id"),
-                )
-            if key in findings_by_fingerprint:
-                findings_by_fingerprint[key] = _merge_findings(
-                    findings_by_fingerprint[key], finding
-                )
-            else:
-                findings_by_fingerprint[key] = finding
+            fingerprint = finding.get("fingerprint") or _fingerprint(
+                finding.get("account_id"),
+                finding.get("region"),
+                finding.get("control_id"),
+                finding.get("resource_id"),
+            )
+            uid = finding.get("finding_uid")
+            # Prefer the source finding UID, but use the stable resource/control
+            # fingerprint as a fallback for legacy exports with different UIDs.
+            key = key_by_uid.get(uid) if uid else None
+            if key is None:
+                key = key_by_fingerprint.get(fingerprint)
 
-    return list(findings_by_fingerprint.values())
+            if key is None:
+                key = uid or fingerprint
+                findings_by_key[key] = finding
+            else:
+                findings_by_key[key] = _merge_findings(findings_by_key[key], finding)
+
+            key_by_fingerprint[fingerprint] = key
+            if uid:
+                key_by_uid[uid] = key
+
+    return list(findings_by_key.values())
