@@ -104,15 +104,15 @@ def test_parse_directory_deduplicates_csv_and_ocsf_and_ignores_compliance_subdir
         )
         writer.writeheader()
         writer.writerow({
-            "FINDING_UID": "same-finding",
+            "FINDING_UID": ocsf["finding_info"]["uid"],
             "ACCOUNT_UID": "392024306192",
             "CHECK_ID": ocsf["metadata"]["event_code"],
             "CHECK_TITLE": "Security group does not allow ingress from internet to TCP port 22",
             "STATUS": "FAIL",
             "SEVERITY": "High",
             "RESOURCE_TYPE": "AwsEc2SecurityGroup",
-            "RESOURCE_UID": "sg-06064219c4fe6e8a1",
-            "RESOURCE_NAME": "test-security-group",
+            "RESOURCE_UID": "arn:aws:ec2:ap-southeast-1:392024306192:security-group/sg-06064219c4fe6e8a1",
+            "RESOURCE_NAME": "csv-resource-name",
             "SERVICE_NAME": "ec2",
             "REGION": "ap-southeast-1",
         })
