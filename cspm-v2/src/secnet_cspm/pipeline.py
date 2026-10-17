@@ -2,24 +2,59 @@ from typing import Any
 
 from . import dashboard, gemini, parser, prowler, reporting, storage
 from .policy import build_remediation_plan, evaluate
-from .risk import priority
+from .risk import priority, score
+
+
+_PRIORITY_ORDER = {"P1": 1, "P2": 2, "P3": 3, "P4": 4}
+
+
+def _rank_findings(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    ranked = []
+    for original in findings:
+        finding = dict(original)
+        finding["priority"] = priority(finding)
+        ranked.append(finding)
+    return sorted(
+        ranked,
+        key=lambda item: (
+            _PRIORITY_ORDER.get(item.get("priority", "P4"), 5),
+            -score(item),
+            item.get("control_id", ""),
+            item.get("resource_id", ""),
+        ),
+    )
+
+
+def _merge_analysis_into_all_findings(
+    findings: list[dict[str, Any]],
+    analyzed: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    by_fingerprint = {
+        item.get("fingerprint"): item
+        for item in analyzed
+        if item.get("fingerprint")
+    }
+    output = []
+    for original in findings:
+        item = dict(original)
+        analysis = by_fingerprint.get(item.get("fingerprint"))
+        if analysis:
+            item.update(analysis)
+        else:
+            item["ai_status"] = "SKIPPED"
+        output.append(item)
+    return output
 
 
 def run_scan(region: str, limit: int = 20, check: str | None = None):
-    """Run a CSPM scan and generate findings, AI analysis and reports.
+    """Run a CSPM scan and generate complete findings plus bounded AI analysis.
 
-    Args:
-        region: AWS region to scan.
-        limit: Maximum number of findings sent for AI analysis.
-        check: Optional Prowler check ID.
-
-    Returns:
-        Dictionary containing scan metadata and report paths.
+    The complete normalized finding set is persisted and reported. Only the
+    highest-priority limited findings are sent to the AI advisory step.
+    Remediation plans remain subject to policy evaluation.
     """
-
     if not isinstance(region, str) or not region.strip():
         raise ValueError("region must be a non-empty string.")
-
     if not isinstance(limit, int) or isinstance(limit, bool) or limit < 0:
         raise ValueError("limit must be a non-negative integer.")
 
@@ -27,62 +62,31 @@ def run_scan(region: str, limit: int = 20, check: str | None = None):
     root = storage.scan_dir(sid)
     out = root / "prowler"
 
-    # 1. Run Prowler.
-    prowler.run(
-        region,
-        out,
-        check=check,
-    )
+    prowler.run(region, out, check=check)
     try:
         dashboard_result = dashboard.sync_scan_csv(out)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         dashboard_result = {
             "status": "ERROR",
             "reason": type(exc).__name__,
             "files_copied": 0,
         }
 
-    # 2. Parse findings.
-    findings = parser.parse_directory(
-        out,
-        sid,
-        region,
-    )
+    findings = parser.parse_directory(out, sid, region)
+    normalized = _rank_findings(findings)
+    storage.write_json(root / "normalized/findings.json", normalized)
 
-    # 3. Assign risk priorities.
-    normalized = []
-
-    for finding in findings:
-        finding["priority"] = priority(finding)
-        normalized.append(finding)
-
-    storage.write_json(
-        root / "normalized/findings.json",
-        normalized,
-    )
-
-    # 4. Analyze a bounded number of findings.
     analyzed: list[dict[str, Any]] = []
     plans: list[dict[str, Any]] = []
-
     selected_findings = normalized[:limit]
 
     for original_finding in selected_findings:
-        # Work on a copy so normalized findings remain unchanged.
         finding = dict(original_finding)
-
-        # 4a. AI analysis is an advisory step.
         try:
             analysis = gemini.analyze(finding)
-
             if not isinstance(analysis, dict):
-                raise TypeError(
-                    "Gemini analysis must return a dictionary."
-                )
-
+                raise TypeError("Gemini analysis must return a dictionary.")
         except Exception as exc:  # noqa: BLE001
-            # Intentional exception boundary around the external AI call:
-            # preserve the finding but do not create a remediation plan.
             finding["ai_status"] = "ERROR"
             finding["ai_error"] = type(exc).__name__
             analyzed.append(finding)
@@ -90,78 +94,34 @@ def run_scan(region: str, limit: int = 20, check: str | None = None):
 
         finding.update(analysis)
         finding["ai_status"] = "OK"
-
-        # 4b. Policy evaluation and plan creation are separate from AI.
         try:
-            decision = evaluate(
-                finding,
-                analysis,
-            )
-
+            decision = evaluate(finding, analysis)
             finding["policy_decision"] = {
                 "allowed": decision.allowed,
                 "approval_required": decision.approval_required,
                 "action": decision.action,
                 "reason": decision.reason,
             }
-
             if decision.allowed:
-                plan = build_remediation_plan(
-                    decision,
-                    finding,
-                    analysis,
-                )
-                plans.append(plan)
-
+                plans.append(build_remediation_plan(decision, finding, analysis))
         except (TypeError, ValueError) as exc:
-            # Invalid policy input or plan data must never produce a plan.
             finding["policy_status"] = "ERROR"
             finding["policy_error"] = type(exc).__name__
-
         analyzed.append(finding)
 
-    # 5. Persist normalized AI results and review plans.
-    storage.write_json(
-        root / "ai/analysis.json",
-        analyzed,
-    )
+    storage.write_json(root / "ai/analysis.json", analyzed)
+    storage.write_json(root / "remediation/plans.json", plans)
 
-    storage.write_json(
-        root / "remediation/plans.json",
-        plans,
-    )
-
-    # 6. Generate reports.
+    # Reports contain every failed finding. AI analysis is attached where available.
+    report_items = _merge_analysis_into_all_findings(normalized, analyzed)
     report_dir = storage.REPORT_ROOT / sid
+    reporting.write_csv(report_dir / "findings.csv", report_items)
+    reporting.write_xlsx(report_dir / "findings.xlsx", report_items)
+    reporting.write_html(report_dir / "report.html", report_items)
 
-    reporting.write_csv(
-        report_dir / "findings.csv",
-        analyzed,
-    )
-
-    reporting.write_xlsx(
-        report_dir / "findings.xlsx",
-        analyzed,
-    )
-
-    reporting.write_html(
-        report_dir / "report.html",
-        analyzed,
-    )
-
-    # 7. Calculate AI statistics.
-    ai_successful = sum(
-        finding.get("ai_status") == "OK"
-        for finding in analyzed
-    )
-
-    ai_errors = sum(
-        finding.get("ai_status") == "ERROR"
-        for finding in analyzed
-    )
-
+    ai_successful = sum(item.get("ai_status") == "OK" for item in analyzed)
+    ai_errors = sum(item.get("ai_status") == "ERROR" for item in analyzed)
     ai_skipped = len(normalized) - len(analyzed)
-
 
     result = {
         "scan_id": sid,
@@ -179,14 +139,9 @@ def run_scan(region: str, limit: int = 20, check: str | None = None):
             "xlsx": str(report_dir / "findings.xlsx"),
             "html": str(report_dir / "report.html"),
             "json": str(root / "ai/analysis.json"),
+            "normalized_json": str(root / "normalized/findings.json"),
             "remediation": str(root / "remediation/plans.json"),
         },
     }
-
-
-    storage.write_json(
-        root / "metadata.json",
-        result,
-    )
-
+    storage.write_json(root / "metadata.json", result)
     return result

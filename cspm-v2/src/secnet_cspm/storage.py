@@ -2,15 +2,27 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-ROOT=Path(__file__).resolve().parents[2]
-DATA_ROOT=ROOT/"data/scans"
-REPORT_ROOT=ROOT/"reports"
-def new_scan_id(): return datetime.now(UTC).strftime("scan-%Y%m%d-%H%M%S")
+ROOT = Path(__file__).resolve().parents[2]
+DATA_ROOT = ROOT / "data/scans"
+REPORT_ROOT = ROOT / "reports"
+
+
+def new_scan_id():
+    # Microsecond precision avoids accidental collisions for concurrent scans.
+    return datetime.now(UTC).strftime("scan-%Y%m%d-%H%M%S-%f")
+
+
 def scan_dir(scan_id):
- p=DATA_ROOT/scan_id
- for n in ("prowler", "normalized", "ai", "remediation"): (p/n).mkdir(parents=True,exist_ok=True)
- (REPORT_ROOT/scan_id).mkdir(parents=True,exist_ok=True)
- return p
-def write_json(path,value):
- path.parent.mkdir(parents=True,exist_ok=True)
- path.write_text(json.dumps(value,indent=2,ensure_ascii=False,default=str),encoding="utf-8")
+    p = DATA_ROOT / scan_id
+    for name in ("prowler", "normalized", "ai", "remediation"):
+        (p / name).mkdir(parents=True, exist_ok=True)
+    (REPORT_ROOT / scan_id).mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def write_json(path, value):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(value, indent=2, ensure_ascii=False, default=str),
+        encoding="utf-8",
+    )
