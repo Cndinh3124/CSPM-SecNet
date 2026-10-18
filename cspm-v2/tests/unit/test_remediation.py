@@ -1,6 +1,5 @@
 import pytest
 
-from secnet_cspm import remediation
 from secnet_cspm.remediation import executor
 from secnet_cspm.remediation.executor import RemediationError, execute
 
