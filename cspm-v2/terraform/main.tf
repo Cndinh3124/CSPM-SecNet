@@ -17,8 +17,9 @@ resource "aws_security_group" "demo" {
 
   tags = {
     Name       = "${var.project_name}-Demo-SG"
-    CSPMScope  = "demo"
-    CSPMTarget = "true"
+    CSPMScope   = "demo"
+    CSPMTarget  = "true"
+    Environment = "demo"
   }
 }
 
